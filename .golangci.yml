@@ -1,0 +1,21 @@
+# Configuración de golangci-lint (job "linter" del CI). Ejecutar localmente: golangci-lint run
+version: "2"
+
+linters:
+  # errcheck, govet, ineffassign, staticcheck y unused.
+  default: standard
+  settings:
+    errcheck:
+      # Errores que no tienen manejo útil: la respuesta HTTP ya empezó a enviarse, o el
+      # Rollback diferido corre después de un Commit exitoso.
+      exclude-functions:
+        - (net/http.ResponseWriter).Write
+        - (*encoding/json.Encoder).Encode
+        - (*database/sql.Tx).Rollback
+  exclusions:
+    presets:
+      - std-error-handling # Close, Flush, fmt.Print... sin revisar el error
+
+formatters:
+  enable:
+    - gofmt

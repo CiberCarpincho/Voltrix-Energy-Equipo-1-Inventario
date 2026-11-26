@@ -37,7 +37,7 @@ func registrarEjemplos(mux *http.ServeMux, contrato []byte) error {
 
 	for _, caso := range []struct {
 		ruta, entrada, salida, location string
-		status                         int
+		status                          int
 	}{
 		{"/plantas", "solar", "creada", "/plantas/PL-001", http.StatusCreated},
 		{"/activos", "panel", "creado", "/activos/PL-001-PS-07", http.StatusCreated},

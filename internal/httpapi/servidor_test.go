@@ -33,7 +33,7 @@ func TestContratoYDemoHU03(t *testing.T) {
 	handler.ServeHTTP(w, httptest.NewRequest("POST", "/activos/consulta",
 		strings.NewReader(`{"ids":["PL-001-PS-07","PL-002-TB-01","PL-999-PS-01"]}`)))
 	var lote struct {
-		Encontrados []struct{ ID string }
+		Encontrados  []struct{ ID string }
 		Desconocidos []string
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &lote); err != nil {
