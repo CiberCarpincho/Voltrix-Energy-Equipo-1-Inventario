@@ -1,0 +1,94 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  Voltrix Equipo 1 - EC2 para la API de Inventario y PostgreSQL. Deja la instancia lista para el
+  pipeline de CD (.github/workflows/cd.yml), que copia docker-compose.yaml y despliega la imagen.
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+  PublicSubnet:
+    Type: AWS::EC2::Subnet::Id
+    Description: Subred de la VPC con ruta a un Internet Gateway
+  ApiClientCidr:
+    Type: String
+    Description: CIDR IPv4 de clientes autorizados a consultar la API
+  InstanceType:
+    Type: String
+    AllowedValues: [t3.micro, t2.micro]
+    Description: Tipo x86 de 1 GiB validado para la cuenta y region
+  SshClientCidr:
+    Type: String
+    Default: 0.0.0.0/0
+    Description: CIDR IPv4 autorizado para SSH (el pipeline de CD entra desde runners de GitHub con IP variable; el acceso exige la llave)
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: Par de llaves para SSH (la llave privada va en el secreto EC2_LLAVE_SSH)
+  UbuntuImage:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id
+Resources:
+  ApiSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Acceso HTTP a Inventario y SSH del pipeline de CD
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 8080
+          ToPort: 8080
+          CidrIp: !Ref ApiClientCidr
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref SshClientCidr
+  InventoryHost:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref InstanceType
+      ImageId: !Ref UbuntuImage
+      KeyName: !Ref KeyName
+      MetadataOptions:
+        HttpTokens: required
+      NetworkInterfaces:
+        - DeviceIndex: '0'
+          AssociatePublicIpAddress: true
+          SubnetId: !Ref PublicSubnet
+          GroupSet: [!Ref ApiSecurityGroup]
+      Tags:
+        - Key: Name
+          Value: Voltrix-Equipo-1-Inventario
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euo pipefail
+          exec > >(tee -a /var/log/voltrix-inventario.log /dev/console) 2>&1
+          if ! swapon --show=NAME --noheadings | grep -q .; then
+            fallocate -l 1G /swapfile
+            chmod 600 /swapfile
+            mkswap /swapfile
+            swapon /swapfile
+            echo '/swapfile none swap sw 0 0' >> /etc/fstab
+          fi
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get -o Acquire::Retries=3 update
+          apt-get -o Acquire::Retries=3 install -y docker.io docker-compose-v2 openssl curl
+          systemctl enable --now docker
+          usermod -aG docker ubuntu
+          # Carpeta del despliegue: el pipeline de CD copia aqui docker-compose.yaml y levanta los contenedores.
+          dir=/home/ubuntu/voltrix-inventario
+          install -d -o ubuntu -g ubuntu -m 0750 "$dir"
+          if [ ! -f "$dir/.env" ]; then
+            umask 077
+            printf 'POSTGRES_PASSWORD=%s\nAPI_PUERTO_HOST=8080\n' "$(openssl rand -hex 32)" > "$dir/.env"
+            chown ubuntu:ubuntu "$dir/.env"
+          fi
+          free -m
+          swapon --show
+          echo "Instancia lista: ejecuta el workflow CD desde GitHub Actions"
+Outputs:
+  ApiUrl:
+    Value: !Sub 'http://${InventoryHost.PublicIp}:8080'
+  InstanceId:
+    Value: !Ref InventoryHost
+  PublicIp:
+    Description: Valor del secreto EC2_HOST
+    Value: !GetAtt InventoryHost.PublicIp

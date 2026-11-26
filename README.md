@@ -2,7 +2,7 @@
 
 Servicio raíz de Voltrix Energy: mantiene el catálogo de plantas y de activos (paneles solares, turbinas y bancos de baterías) con su estado operativo. Lo consumen Telemetría (equipo 2), Reportes (4), Pronóstico (5) y Mantenimiento (6). El contrato HTTP está en [docs/openapi.yaml](docs/openapi.yaml).
 
-Este repositorio es el **arquetipo** del servicio: la arquitectura del DAS ya está montada y funcionando, pero no tiene ninguna historia de usuario implementada. Cada HU se agrega siguiendo la [sección 4](#4-cómo-implementar-una-historia-de-usuario).
+La arquitectura del DAS ya está montada y funcionando. Para el primer avance el servicio publica un **catálogo de ejemplo** según el contrato (80 plantas y 1.270 activos deterministas) y responde los POST con los ejemplos del OpenAPI. Las historias de usuario se agregan siguiendo la [sección 4](#4-cómo-implementar-una-historia-de-usuario).
 
 ---
 
@@ -38,15 +38,16 @@ app/main.go         → único lugar que conoce todas las capas y las conecta
 | Carpeta | Capa | Contenido |
 |---|---|---|
 | `app/main.go` | Arranque | Lee la configuración, conecta las capas, aplica migraciones, levanta el servidor y lo apaga en orden ante SIGTERM. |
-| `app/api/` | Presentación | `servidor.go` (rutas y dependencias), `middleware.go`, `respuestas.go` (JSON y errores), `salud.go`. |
-| `app/business/services/` | Negocio | `puertos.go` (interfaces hacia `app/infraestructure`) y los casos de uso. |
+| `app/api/` | Presentación | `servidor.go` (rutas y dependencias), `middleware.go`, `respuestas.go` (JSON y errores), `salud.go`, `catalogo.go` (GET del catálogo y sus DTO) y `ejemplos.go` (POST de demostración). |
+| `app/business/services/` | Negocio | `puertos.go` (interfaces hacia `app/infraestructure`) y los casos de uso (`salud.go`, `catalogo.go`). |
 | `app/business/workers/` | Negocio | Pool de workers del DAS. Vacío: lo implementa la HU de actualización por lotes (ver `doc.go`). |
-| `app/business/domain/` | Compartida | Errores de negocio. Aquí van los modelos (planta, activo, estados). |
-| `app/infraestructure/` | Acceso a datos | Pool de conexiones, migraciones (`migraciones/*.sql`), traducción de errores del driver y repositorios. |
+| `app/business/domain/` | Compartida | Errores de negocio y modelos del catálogo (`catalogo.go`: planta, activo, tipos, estados y paginación). |
+| `app/infraestructure/` | Acceso a datos | Pool de conexiones, migraciones (`migraciones/*.sql`: esquema y catálogo de ejemplo), traducción de errores del driver y repositorios (`catalogo.go`). |
 | `app/core/` | Utilidades | Configuración por variables de entorno con valores por defecto y validación. |
 | `docs/` | Contrato | OpenAPI 1.0.0, servido en `GET /openapi.yaml`. |
 | `docker-compose.yaml` | Despliegue | API y PostgreSQL; es el que se copia a la EC2. |
 | `docker-compose.override.yaml` | Desarrollo | Construye la imagen desde el código y publica PostgreSQL en localhost. |
+| `infra/ec2/` | IaC | Plantilla de CloudFormation que crea la EC2 lista para el CD (ver [sección 8](#8-cicd-y-despliegue)). |
 | `.github/workflows/` | CI/CD | CI (linter y Semgrep) y CD (GHCR y EC2). |
 
 ## 3. Qué ya está listo
@@ -64,26 +65,37 @@ app/main.go         → único lugar que conoce todas las capas y las conecta
 | Reinicio automático y límites de memoria | `docker-compose.yaml` (128 MiB API, 256 MiB PostgreSQL) |
 | Apagado ordenado | `app/main.go` (espera las peticiones en curso, máximo 10 s) |
 
+**Endpoints del primer avance**
+
+| Operación | Respuesta |
+|---|---|
+| `GET /activos/{id}` | Activo del catálogo de ejemplo (404 si no existe) |
+| `GET /activos?plantaId=&tipo=&estado=&limit=&offset=` | Página de activos (por defecto 50, máximo 200) |
+| `GET /plantas?tipo=&clienteId=&limit=&offset=` | Página de plantas |
+| `GET /plantas/{plantaId}` | Planta con el resumen de sus activos por tipo y estado |
+| `POST /plantas`, `POST /activos`, `POST /activos/consulta`, `POST /activos/actualizaciones-estado` | Demostración: si el cuerpo es el ejemplo del contrato, responden su ejemplo con `X-Inventario-Demo: true`; no modifican la base |
+| `GET /health`, `GET /openapi.yaml` | Salud y contrato |
+
 ## 4. Cómo implementar una historia de usuario
 
-Ejemplo: `GET /activos/{id}`. Se escribe de abajo hacia arriba y cada paso tiene su prueba.
+Ejemplo: `POST /activos` (registrar un activo), que hoy responde el ejemplo del contrato. Se escribe de abajo hacia arriba y cada paso tiene su prueba. El catálogo (`catalogo.go` en cada capa) sirve de modelo completo.
 
-1. **Esquema**: `app/infraestructure/migraciones/001_activos.sql` con el `CREATE TABLE`. Al arrancar se aplica sola. Numerar siempre con tres dígitos y nunca editar una migración ya fusionada: los cambios van en una nueva (`002_...`).
-2. **Dominio**: `app/business/domain/activo.go` con el tipo `Activo`, sus estados válidos y las reglas que no dependen de nada externo. Sin etiquetas JSON ni SQL.
+1. **Esquema** (si hace falta): una migración nueva `app/infraestructure/migraciones/003_....sql`. Al arrancar se aplica sola. Numerar siempre con tres dígitos y nunca editar una migración ya fusionada (`001` y `002` crean y llenan el catálogo): los cambios van en una nueva.
+2. **Dominio**: en `app/business/domain`, los tipos y reglas que no dependen de nada externo (por ejemplo, `ActivoNuevo` y su validación). Sin etiquetas JSON ni SQL.
 3. **Puerto**: en `app/business/services/puertos.go`, la interfaz que necesita el caso de uso:
    ```go
    type RepositorioActivos interface {
-       Buscar(ctx context.Context, id string) (domain.Activo, error)
+       Registrar(ctx context.Context, activo domain.Activo) (domain.Activo, error)
    }
    ```
 4. **Repositorio**: `app/infraestructure/activos.go` implementa la interfaz con consultas parametrizadas (`$1`, nunca concatenando texto) y pasa cada error por `traducirError`. Así `sql.ErrNoRows` llega arriba como `domain.ErrNoEncontrado` y una clave repetida como `domain.ErrDuplicado`.
 5. **Caso de uso**: `app/business/services/activos.go` recibe el puerto en su constructor (`NuevoActivos(repo RepositorioActivos)`), valida y devuelve errores de dominio: `domain.Invalido(...)`, `domain.NoEncontrado(...)` o `&domain.Error{Categoria: ..., Codigo: "PLANTA_DESCONOCIDA", ...}` si el contrato define un código propio.
-6. **Manejador**: `app/api/activos.go` lee la petición (`r.PathValue`, `LeerJSON`), llama al servicio y responde con `EscribirJSON` o `ResponderError`. Los DTO con los nombres JSON del contrato (camelCase) viven aquí y se convierten desde el dominio. Se agrega el caso de uso a `Dependencias` y la ruta en `registrarRutas` (`servidor.go`).
+6. **Manejador**: `app/api/activos.go` lee la petición (`r.PathValue`, `LeerJSON`), llama al servicio y responde con `EscribirJSON` o `ResponderError`. Los DTO con los nombres JSON del contrato (camelCase) viven aquí y se convierten desde el dominio. Se agrega el caso de uso a `Dependencias`, la ruta en `registrarRutas` (`servidor.go`) y se quita ese POST de la lista de `ejemplos.go`.
 7. **Conexión**: en `app/main.go`, `services.NuevoActivos(infraestructure.Activos{DB: db})` y se pasa en `api.Dependencias`.
 8. **Pruebas**:
-   - servicio: con un doble del puerto (ver `app/business/services/salud_test.go`);
-   - manejador: con `httptest` y el servicio armado sobre un doble (ver `app/api/servidor_test.go`);
-   - repositorio: de integración contra PostgreSQL con `INVENTARIO_TEST_DSN` (ver `app/infraestructure/migraciones_integration_test.go`, que usa un esquema propio y lo borra al terminar).
+   - servicio: con un doble del puerto (ver `app/business/services/catalogo_test.go`);
+   - manejador: con `httptest` y el servicio armado sobre un doble (ver `app/api/catalogo_test.go`);
+   - repositorio: de integración contra PostgreSQL con `INVENTARIO_TEST_DSN` (ver `app/infraestructure/catalogo_integration_test.go`, que usa un esquema propio y lo borra al terminar).
 
 Para la HU de actualización por lotes, el pool va en `app/business/workers` según el diseño de `doc.go` (reparto por `hash(id) mod N` y `core.Config.Workers`). El servicio lo usa y le pasa la función que aplica un cambio con el repositorio (`SELECT ... FOR UPDATE`).
 
@@ -108,6 +120,9 @@ Requisitos: Go 1.26 o superior y Docker con el plugin Compose. Desde la raíz de
 cp .env.example .env                 # poner una POSTGRES_PASSWORD cualquiera
 docker compose up -d --build --wait  # docker-compose.yaml + docker-compose.override.yaml
 curl http://localhost:8080/health
+curl http://localhost:8080/activos/PL-001-PS-07
+curl "http://localhost:8080/plantas?limit=1"
+curl "http://localhost:8080/activos?plantaId=PL-003"
 curl http://localhost:8080/openapi.yaml
 ```
 
@@ -141,7 +156,18 @@ Cada integrante trabaja en su rama, abre un PR hacia `develop` (lo revisa el CI)
 1. *Settings → Branches*: regla para `develop` con "Require a pull request before merging" y los checks obligatorios **Linter (golangci-lint)** y **Análisis de seguridad (Semgrep)**; regla para `main` con "Require a pull request before merging" (solo se fusiona `develop`).
 2. *Settings → Secrets and variables → Actions*: `EC2_HOST`, `EC2_USUARIO` (`ubuntu`) y `EC2_LLAVE_SSH`; opcionalmente la variable `EC2_DIRECTORIO` (por defecto `voltrix-inventario`, en el home del usuario).
 
-**EC2 (una sola vez)**: Docker con el plugin Compose, el usuario SSH en el grupo `docker`, y la carpeta del despliegue con su `.env` (ver `.env.example`). Grupo de seguridad: 22 (SSH del pipeline, protegido por la llave) y 8080 (API).
+**EC2 (una sola vez, con IaC)**: la plantilla [infra/ec2/inventario.yaml](infra/ec2/inventario.yaml) crea la instancia y su grupo de seguridad y la deja lista para el CD: swap de 1 GiB, Docker con Compose, el usuario `ubuntu` en el grupo `docker` y `~/voltrix-inventario/.env` con una contraseña generada en la instancia. Solo abre 22 (SSH del pipeline, protegido por la llave) y 8080 (API); PostgreSQL no se publica.
+
+1. En EC2 → *Key pairs*, crear o importar el par de llaves del pipeline.
+2. En CloudFormation, crear una pila con `infra/ec2/inventario.yaml` (nombre `voltrix-inventario`). Parámetros: VPC y subred pública, `ApiClientCidr` (quién puede llamar a la API; `0.0.0.0/0` para los demás equipos), tipo `t3.micro` o `t2.micro` (el elegible en la cuenta), el par de llaves y `SshClientCidr` en `0.0.0.0/0` (los runners de GitHub no tienen IP fija).
+   Desde la terminal, lo mismo con la AWS CLI:
+   ```bash
+   aws cloudformation deploy --stack-name voltrix-inventario --template-file infra/ec2/inventario.yaml \
+     --parameter-overrides VpcId=<vpc> PublicSubnet=<subred> ApiClientCidr=0.0.0.0/0 \
+       InstanceType=t3.micro KeyName=<llave>
+   aws cloudformation describe-stacks --stack-name voltrix-inventario --query 'Stacks[0].Outputs'
+   ```
+3. Con la salida `PublicIp`, actualizar el secreto `EC2_HOST` y lanzar *Actions → CD → Run workflow*. El arranque de la instancia (`/var/log/voltrix-inventario.log`) tarda unos minutos.
 
 ```bash
 # En la EC2, para comprobar el estado
@@ -160,6 +186,8 @@ $base = 'http://IP-PUBLICA:8080'
 $salud = Invoke-RestMethod "$base/health" -TimeoutSec 10
 if ($salud.estado -ne 'disponible' -or $salud.baseDatos -ne 'ok') { throw 'Falló salud' }
 $salud.version                                                             # commit desplegado
+$activo = Invoke-RestMethod "$base/activos/PL-001-PS-07" -TimeoutSec 10
+if ($activo.id -ne 'PL-001-PS-07' -or $activo.plantaId -ne 'PL-001') { throw 'Activo inesperado' }
 Test-NetConnection ([uri]$base).Host -Port 5432 -InformationLevel Quiet   # debe dar False
 ```
 
