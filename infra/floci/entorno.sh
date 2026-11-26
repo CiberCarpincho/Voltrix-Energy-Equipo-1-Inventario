@@ -20,10 +20,12 @@ export KUBECONFIG="$DIR_FLOCI/kubeconfig"
 
 export TERRAFORM_IMAGEN="${TERRAFORM_IMAGEN:-hashicorp/terraform:1.17.1}"
 
-# Terraform en contenedor: comparte la red del host para llegar a localhost:4566.
+# Terraform en contenedor: comparte la red del host para llegar a localhost:4566 y usa el
+# par público test/test de Floci (no es un secreto: Floci acepta cualquier clave no vacía).
 terraform() {
   docker run --rm --network host \
     -u "$(id -u):$(id -g)" -e HOME=/tmp \
+    -e AWS_ACCESS_KEY_ID=test -e AWS_SECRET_ACCESS_KEY=test \
     -e TF_VAR_floci_endpoint="$AWS_ENDPOINT_URL" \
     -e TF_VAR_nombre_cluster="$CLUSTER" \
     -v "$DIR_FLOCI/terraform:/trabajo" -w /trabajo \

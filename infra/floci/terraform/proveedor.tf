@@ -9,10 +9,9 @@ terraform {
 }
 
 # Todas las llamadas van al emulador Floci; no se usa ninguna cuenta real de AWS.
+# Las credenciales llegan por AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY (ver entorno.sh).
 provider "aws" {
-  region     = var.region
-  access_key = "test"
-  secret_key = "test"
+  region = var.region
 
   skip_credentials_validation = true
   skip_metadata_api_check     = true
