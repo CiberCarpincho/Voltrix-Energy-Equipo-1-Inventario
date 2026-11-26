@@ -1,0 +1,88 @@
+# Configuración de golangci-lint (job "linter" del CI). Ejecutar localmente: golangci-lint run
+version: "2"
+
+linters:
+  # standard: errcheck, govet, ineffassign, staticcheck y unused.
+  default: standard
+  enable:
+    # Reglas de dependencia entre capas del DAS (sección 2): cada capa solo habla con la de
+    # abajo y solo app/infrastructure conoce SQL. app/main.go es el único que ve todas.
+    - depguard
+  settings:
+    errcheck:
+      # Errores que no tienen manejo útil: la respuesta HTTP ya empezó a enviarse, o el
+      # Rollback diferido corre después de un Commit exitoso.
+      exclude-functions:
+        - (net/http.ResponseWriter).Write
+        - (*encoding/json.Encoder).Encode
+        - (*database/sql.Tx).Rollback
+    depguard:
+      rules:
+        presentacion:
+          files: ["**/app/api/**"]
+          deny:
+            - pkg: voltrix/inventario/app/infrastructure
+              desc: "la presentación llama a la capa de negocio (app/business/services), no a infrastructure"
+            - pkg: voltrix/inventario/app/business/workers
+              desc: "el pool de workers lo usa la capa de negocio (app/business/services)"
+            - pkg: database/sql
+              desc: "solo app/infrastructure conoce SQL"
+            - pkg: github.com/lib/pq
+              desc: "solo app/infrastructure conoce el driver de PostgreSQL"
+        negocio:
+          files: ["**/app/business/services/**", "**/app/business/workers/**"]
+          deny:
+            - pkg: voltrix/inventario/app/api
+              desc: "la capa de negocio no depende de la presentación"
+            - pkg: voltrix/inventario/app/infrastructure
+              desc: "la capa de negocio usa los puertos de app/business/services/puertos.go, no infrastructure"
+            - pkg: net/http
+              desc: "la capa de negocio no conoce HTTP"
+            - pkg: database/sql
+              desc: "solo app/infrastructure conoce SQL"
+            - pkg: github.com/lib/pq
+              desc: "solo app/infrastructure conoce el driver de PostgreSQL"
+        acceso-datos:
+          files: ["**/app/infrastructure/**"]
+          deny:
+            - pkg: voltrix/inventario/app/api
+              desc: "infrastructure no depende de la presentación"
+            - pkg: voltrix/inventario/app/business/services
+              desc: "infrastructure no depende de los casos de uso"
+            - pkg: voltrix/inventario/app/business/workers
+              desc: "infrastructure no depende de los casos de uso"
+            - pkg: net/http
+              desc: "infrastructure no conoce HTTP"
+        dominio:
+          files: ["**/app/business/domain/**"]
+          deny:
+            - pkg: voltrix/inventario/app/api
+              desc: "el dominio no depende de ninguna capa"
+            - pkg: voltrix/inventario/app/business/services
+              desc: "el dominio no depende de ninguna capa"
+            - pkg: voltrix/inventario/app/business/workers
+              desc: "el dominio no depende de ninguna capa"
+            - pkg: voltrix/inventario/app/infrastructure
+              desc: "el dominio no depende de ninguna capa"
+            - pkg: voltrix/inventario/app/core
+              desc: "el dominio no depende de ninguna capa"
+            - pkg: net/http
+              desc: "el dominio no conoce HTTP"
+            - pkg: database/sql
+              desc: "el dominio no conoce SQL"
+        utilidades:
+          files: ["**/app/core/**"]
+          deny:
+            - pkg: voltrix/inventario/app/api
+              desc: "core no depende de ninguna capa"
+            - pkg: voltrix/inventario/app/business
+              desc: "core no depende de ninguna capa"
+            - pkg: voltrix/inventario/app/infrastructure
+              desc: "core no depende de ninguna capa"
+  exclusions:
+    presets:
+      - std-error-handling # Close, Flush, fmt.Print... sin revisar el error
+
+formatters:
+  enable:
+    - gofmt

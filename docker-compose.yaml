@@ -1,0 +1,69 @@
+# Despliegue de Inventario en la EC2: API (Go) y PostgreSQL 16 en una red privada.
+#   api (8080; en el host, API_PUERTO_HOST del .env) · db (5432, solo red interna)
+#
+# Configuración:
+#   - Secretos y valores propios del entorno: archivo .env junto a este archivo (ver .env.example).
+#   - API_IMAGEN y API_TAG: las exporta el pipeline de CD en cada despliegue (imagen de GHCR).
+# En desarrollo, docker-compose.override.yaml se aplica automáticamente y construye la
+# imagen desde el código. El pipeline de CD solo copia este archivo a la EC2.
+#
+# El nombre del proyecto fija el nombre del volumen (voltrix-inventario_pgdata): no cambiarlo,
+# o la EC2 arrancaría con una base vacía.
+name: voltrix-inventario
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: inventario
+      POSTGRES_USER: inventario
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Define POSTGRES_PASSWORD}
+    command: ["postgres", "-c", "shared_buffers=32MB", "-c", "max_connections=10"]
+    mem_limit: 256m
+    restart: unless-stopped
+    # Sin "ports": solo la API la alcanza, por la red interna de Docker.
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U inventario -d inventario"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    networks: [inventario]
+
+  api:
+    image: ${API_IMAGEN:-voltrix-inventario-api}:${API_TAG:-latest}
+    environment:
+      PGHOST: db
+      PGPORT: "5432"
+      PGDATABASE: inventario
+      PGUSER: inventario
+      PGPASSWORD: ${POSTGRES_PASSWORD:?Define POSTGRES_PASSWORD}
+      PGSSLMODE: disable
+      PGCONNECT_TIMEOUT: "1"
+      # Parámetros del servicio (app/core); valores por defecto pensados para 1 GiB de RAM.
+      DB_MAX_CONEXIONES: ${DB_MAX_CONEXIONES:-4}
+      WORKERS: ${WORKERS:-4}
+      ADMISION_MAX_CONCURRENTES: ${ADMISION_MAX_CONCURRENTES:-32}
+      LOG_NIVEL: ${LOG_NIVEL:-info}
+    mem_limit: 128m
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    # /health responde 200 solo si PostgreSQL contesta; "docker compose up --wait" espera este estado.
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 30s
+    ports:
+      - "${API_PUERTO_HOST:-8080}:8080"
+    networks: [inventario]
+
+volumes:
+  pgdata:
+
+networks:
+  inventario:
+    driver: bridge
