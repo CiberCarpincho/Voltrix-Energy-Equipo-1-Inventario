@@ -59,21 +59,27 @@ func ejecutar() error {
 
 	// Capa de lógica de negocio: recibe los repositorios a través de sus puertos.
 	salud := services.NuevaSalud(infraestructure.Salud{DB: db})
+	catalogo := services.NuevoCatalogo(infraestructure.Catalogo{DB: db})
 
 	// Capa de presentación
 	contrato, err := os.ReadFile(rutaContrato)
 	if err != nil {
 		return fmt.Errorf("leer el contrato: %w", err)
 	}
+	manejador, err := api.Nuevo(api.Dependencias{
+		Salud:           salud,
+		Catalogo:        catalogo,
+		Contrato:        contrato,
+		Version:         version,
+		MaxConcurrentes: cfg.AdmisionMaxConcurrentes,
+		Log:             slog.Default(),
+	})
+	if err != nil {
+		return fmt.Errorf("armar las rutas: %w", err)
+	}
 	servidor := &http.Server{
-		Addr: fmt.Sprintf(":%d", cfg.Puerto),
-		Handler: api.Nuevo(api.Dependencias{
-			Salud:           salud,
-			Contrato:        contrato,
-			Version:         version,
-			MaxConcurrentes: cfg.AdmisionMaxConcurrentes,
-			Log:             slog.Default(),
-		}),
+		Addr:              fmt.Sprintf(":%d", cfg.Puerto),
+		Handler:           manejador,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      15 * time.Second,

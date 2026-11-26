@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -22,14 +24,34 @@ type baseFalsa struct{ err error }
 
 func (b baseFalsa) Verificar(context.Context) error { return b.err }
 
-func nuevoServidor(errBase error) http.Handler {
-	return Nuevo(Dependencias{
+// contrato es docs/openapi.yaml: los POST de demostración leen sus ejemplos.
+func contrato(t *testing.T) []byte {
+	t.Helper()
+	datos, err := os.ReadFile(filepath.Join("..", "..", "docs", "openapi.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return datos
+}
+
+// nuevoServidor arma la API sobre dobles: la base de /health y el repositorio del catálogo.
+func nuevoServidor(t *testing.T, errBase error, catalogo *catalogoFalso) http.Handler {
+	t.Helper()
+	if catalogo == nil {
+		catalogo = &catalogoFalso{}
+	}
+	h, err := Nuevo(Dependencias{
 		Salud:           services.NuevaSalud(baseFalsa{err: errBase}),
-		Contrato:        []byte("openapi: 3.0.3\n"),
+		Catalogo:        services.NuevoCatalogo(catalogo),
+		Contrato:        contrato(t),
 		Version:         "prueba",
 		MaxConcurrentes: 2,
 		Log:             logSilencioso,
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return h
 }
 
 func pedir(h http.Handler, metodo, ruta string, cuerpo string, cabeceras ...string) *httptest.ResponseRecorder {
@@ -52,7 +74,7 @@ func decodificar[T any](t *testing.T, w *httptest.ResponseRecorder) T {
 }
 
 func TestSaludDisponible(t *testing.T) {
-	w := pedir(nuevoServidor(nil), "GET", "/health", "")
+	w := pedir(nuevoServidor(t, nil, nil), "GET", "/health", "")
 	salud := decodificar[respuestaSalud](t, w)
 	if w.Code != http.StatusOK || salud.Estado != "disponible" || salud.BaseDatos != "ok" || salud.Version != "prueba" {
 		t.Fatalf("HTTP %d %+v", w.Code, salud)
@@ -60,7 +82,7 @@ func TestSaludDisponible(t *testing.T) {
 }
 
 func TestSaludSinBaseDatos(t *testing.T) {
-	w := pedir(nuevoServidor(domain.NoDisponible(errors.New("conexión rechazada"))), "GET", "/health", "")
+	w := pedir(nuevoServidor(t, domain.NoDisponible(errors.New("conexión rechazada")), nil), "GET", "/health", "")
 	salud := decodificar[respuestaSalud](t, w)
 	if w.Code != http.StatusServiceUnavailable || salud.Estado != "no_disponible" || salud.BaseDatos != "error" {
 		t.Fatalf("HTTP %d %+v", w.Code, salud)
@@ -68,14 +90,14 @@ func TestSaludSinBaseDatos(t *testing.T) {
 }
 
 func TestContratoPublicado(t *testing.T) {
-	w := pedir(nuevoServidor(nil), "GET", "/openapi.yaml", "")
-	if w.Code != http.StatusOK || w.Body.String() != "openapi: 3.0.3\n" || w.Header().Get("Content-Type") != "application/yaml" {
+	w := pedir(nuevoServidor(t, nil, nil), "GET", "/openapi.yaml", "")
+	if w.Code != http.StatusOK || w.Body.String() != string(contrato(t)) || w.Header().Get("Content-Type") != "application/yaml" {
 		t.Fatalf("HTTP %d %q", w.Code, w.Body)
 	}
 }
 
 func TestRutaDesconocida(t *testing.T) {
-	w := pedir(nuevoServidor(nil), "GET", "/no-existe", "")
+	w := pedir(nuevoServidor(t, nil, nil), "GET", "/no-existe", "")
 	cuerpo := decodificar[cuerpoError](t, w)
 	if w.Code != http.StatusNotFound || cuerpo.Codigo != "NO_ENCONTRADO" || cuerpo.RequestID != w.Header().Get("X-Request-Id") {
 		t.Fatalf("HTTP %d %+v", w.Code, cuerpo)
@@ -83,7 +105,7 @@ func TestRutaDesconocida(t *testing.T) {
 }
 
 func TestRequestID(t *testing.T) {
-	servidor := nuevoServidor(nil)
+	servidor := nuevoServidor(t, nil, nil)
 	generado := pedir(servidor, "GET", "/health", "").Header().Get("X-Request-Id")
 	if !formatoUUID.MatchString(generado) || generado[14] != '4' {
 		t.Fatalf("se esperaba un UUID v4, se obtuvo %q", generado)
