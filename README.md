@@ -48,6 +48,8 @@ app/main.go         → único lugar que conoce todas las capas y las conecta
 | `docker-compose.yaml` | Despliegue | API y PostgreSQL; es el que se copia a la EC2. |
 | `docker-compose.override.yaml` | Desarrollo | Construye la imagen desde el código y publica PostgreSQL en localhost. |
 | `infra/ec2/` | IaC | Plantilla de CloudFormation y `desplegar.sh`, que crea la EC2 y la conecta al CD en un solo comando (ver [sección 8](#8-cicd-y-despliegue)). |
+| `infra/floci/` | IaC | Clúster EKS emulado en Floci con Terraform (red, IAM de mínimo privilegio y clúster): `crear.sh`, `destruir.sh` y `evidencia.sh` (ver [infra/floci/README.md](infra/floci/README.md)). S3 no aplica: Inventario no guarda archivos. |
+| `scripts/demo/` | Demos | Pruebas demo por criterios de aceptación (`python -m scripts.demo.criterios --hu NN`) y por escenas de integración (`python -m scripts.demo`). Ver [scripts/demo/README.md](scripts/demo/README.md). |
 | `.github/workflows/` | CI/CD | CI (linter y Semgrep) y CD (GHCR y EC2). |
 
 ## 3. Qué ya está listo

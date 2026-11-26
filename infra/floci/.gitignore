@@ -1,0 +1,5 @@
+kubeconfig
+credenciales
+terraform/.terraform/
+terraform/terraform.tfstate*
+terraform/.terraform.tfstate.lock.info

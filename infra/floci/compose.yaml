@@ -1,0 +1,24 @@
+# Floci: emulador local de AWS. El servicio EKS crea un contenedor k3s por clúster,
+# por eso necesita el socket de Docker (Docker en modo root).
+name: voltrix-floci
+services:
+  floci:
+    image: floci/floci:2.5.0
+    ports:
+      - "4566:4566"
+    environment:
+      # La imagen publicada guarda el estado en memoria; así el IAM y el clúster
+      # sobreviven a un reinicio de Floci (y Floci vuelve a adoptar el contenedor k3s).
+      FLOCI_STORAGE_MODE: persistent
+      # Al borrar el clúster con Terraform también se borra su volumen de k3s.
+      FLOCI_STORAGE_PRUNE_VOLUMES_ON_DELETE: "true"
+      # La imagen de k3s la elige Floci según la versión del clúster (terraform/variables.tf).
+      # Conserva el provisionador local-path de k3s para el PVC de PostgreSQL (T-INV-07).
+      FLOCI_SERVICES_EKS_DEFAULT_STORAGE_CLASS: "true"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - floci-data:/app/data
+    restart: unless-stopped
+
+volumes:
+  floci-data:

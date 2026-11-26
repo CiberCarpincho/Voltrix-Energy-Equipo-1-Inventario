@@ -1,0 +1,2 @@
+# Dependencias del arnés de demos (python -m scripts.demo)
+httpx>=0.27,<1
