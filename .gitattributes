@@ -1,0 +1,3 @@
+infra/ec2/cd/*.sh text eol=lf
+infra/ec2/cd/*.py text eol=lf
+infra/ec2/cd/*.timer text eol=lf
