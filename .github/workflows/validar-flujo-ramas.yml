@@ -1,0 +1,28 @@
+name: Flujo de ramas
+on:
+  pull_request:
+    branches: [main, develop]
+    types: [opened, reopened, synchronize, edited]
+
+permissions: {}
+
+jobs:
+  validar-origen:
+    name: Validar origen del PR
+    runs-on: ubuntu-latest
+    steps:
+      - name: Comprobar origen y destino
+        shell: bash
+        env:
+          MISMO_REPOSITORIO: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+          ORIGEN: ${{ github.head_ref }}
+          DESTINO: ${{ github.base_ref }}
+        run: |
+          if [[ "$MISMO_REPOSITORIO" != "true" ]]; then
+            echo "::error::El PR debe proceder del repositorio del equipo."
+            exit 1
+          fi
+          case "$DESTINO/$ORIGEN" in
+            main/develop|develop/saragon) exit 0 ;;
+            *) echo "::error::La rama de origen no está autorizada para este destino."; exit 1 ;;
+          esac
