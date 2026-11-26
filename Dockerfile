@@ -3,6 +3,7 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY cmd/ cmd/
+COPY db/ db/
 COPY internal/ internal/
 RUN CGO_ENABLED=0 go build -p 1 -trimpath -o /out/inventario ./cmd/inventario
 
