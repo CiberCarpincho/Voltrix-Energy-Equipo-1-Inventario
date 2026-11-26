@@ -1,0 +1,62 @@
+# Integración continua de Inventario (rama develop).
+#
+# Corre en cada Pull Request hacia develop:
+#   1. linter ...... golangci-lint (el equivalente de ruff para Go). Configuración en .golangci.yml.
+#   2. seguridad ... análisis estático OWASP Top 10 con Semgrep. Falla el PR si encuentra algo.
+# No necesita secretos.
+
+name: CI
+
+on:
+  pull_request:
+    branches: [develop]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Misma versión que la etapa de build del Dockerfile.
+  GO_VERSION: "1.27.x"
+  GOLANGCI_LINT_VERSION: v2.15.0
+  SEMGREP_VERSION: "1.185.0"
+
+jobs:
+  linter:
+    name: Linter (golangci-lint)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Linter (golangci-lint)
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        with:
+          version: ${{ env.GOLANGCI_LINT_VERSION }}
+
+  seguridad:
+    name: Análisis de seguridad (Semgrep)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+
+      - name: Instalar Semgrep
+        run: pip install "semgrep==${SEMGREP_VERSION}"
+
+      # Código Go, secretos, Dockerfile, Compose y GitHub Actions.
+      # --error: termina con código 1 si hay hallazgos. --metrics=off: no envía telemetría.
+      - name: Análisis estático (Semgrep, OWASP Top 10)
+        run: >-
+          semgrep scan --error --metrics=off
+          --config p/owasp-top-ten --config p/golang --config p/secrets
+          --config p/dockerfile --config p/docker-compose --config p/github-actions

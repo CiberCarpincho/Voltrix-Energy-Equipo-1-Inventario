@@ -1,0 +1,168 @@
+# Despliegue continuo de Inventario (rama main).
+#
+# Corre en cada push a main (al fusionar develop en main) o a mano desde la pestaña Actions.
+# El código ya pasó la integración continua en develop (ci.yml).
+#   1. imagen ....... construye la imagen Docker, la publica en GHCR (:<commit> y :latest) y
+#                     comprueba que se pueda descargar sin credenciales.
+#   2. despliegue ... copia docker-compose.yaml a la EC2 por SSH, descarga la imagen,
+#                     reinicia los contenedores y verifica /health. Si la versión nueva no queda
+#                     saludable, vuelve a la imagen que estaba corriendo y el job falla.
+#
+# Secretos (Settings > Secrets and variables > Actions):
+#   EC2_HOST        IP o DNS público de la EC2
+#   EC2_USUARIO     usuario SSH de la EC2 (ubuntu en la AMI de Ubuntu)
+#   EC2_LLAVE_SSH   llave privada SSH (contenido completo del archivo)
+# Variable opcional: EC2_DIRECTORIO (carpeta del despliegue en la EC2; por defecto voltrix-inventario,
+# relativa al home del usuario). Ahí debe existir el .env (ver .env.example).
+#
+# La imagen en GHCR es pública: la EC2 y el clúster de Floci la descargan sin docker login ni
+# secretos de registro. Un paquete nuevo de GHCR nace privado; la primera vez hay que hacerlo
+# público (ver el paso "Comprobar que la imagen es pública").
+
+name: CD
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Un despliegue a la vez; uno nuevo espera a que termine el anterior.
+concurrency:
+  group: despliegue-produccion
+  cancel-in-progress: false
+
+env:
+  NOMBRE_IMAGEN: voltrix-inventario-api
+
+jobs:
+  imagen:
+    name: Publicar imagen en GHCR
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      imagen: ${{ steps.nombre.outputs.imagen }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Nombre de la imagen (GHCR exige minúsculas)
+        id: nombre
+        run: echo "imagen=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/${NOMBRE_IMAGEN}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
+        with:
+          context: .
+          push: true
+          # /health reporta este commit como versión.
+          build-args: |
+            VERSION=${{ github.sha }}
+          tags: |
+            ${{ steps.nombre.outputs.imagen }}:${{ github.sha }}
+            ${{ steps.nombre.outputs.imagen }}:latest
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.title=${{ env.NOMBRE_IMAGEN }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Descarga anónima del manifiesto, como lo harán la EC2 y Floci.
+      - name: Comprobar que la imagen es pública
+        env:
+          IMAGEN: ${{ steps.nombre.outputs.imagen }}
+        run: |
+          ruta="${IMAGEN#ghcr.io/}"
+          # Con una imagen privada, GHCR niega incluso el token anónimo.
+          token=$(curl -fsS "https://ghcr.io/token?scope=repository:${ruta}:pull" | jq -r .token) || token=""
+          if ! curl -fsS -o /dev/null -H "Authorization: Bearer ${token}" \
+            -H "Accept: application/vnd.oci.image.index.v1+json,application/vnd.oci.image.manifest.v1+json,application/vnd.docker.distribution.manifest.list.v2+json,application/vnd.docker.distribution.manifest.v2+json" \
+            "https://ghcr.io/v2/${ruta}/manifests/latest"; then
+            echo "::error::La imagen ${IMAGEN} es privada. Un administrador debe hacerla pública una vez en https://github.com/orgs/${GITHUB_REPOSITORY_OWNER}/packages/container/${NOMBRE_IMAGEN}/settings (Danger Zone > Change visibility > Public) y luego volver a ejecutar este workflow."
+            exit 1
+          fi
+
+  despliegue:
+    name: Desplegar en AWS EC2
+    needs: imagen
+    runs-on: ubuntu-latest
+    environment: produccion
+    permissions:
+      contents: read
+    env:
+      EC2_HOST: ${{ secrets.EC2_HOST }}
+      EC2_USUARIO: ${{ secrets.EC2_USUARIO }}
+      DIRECTORIO: ${{ vars.EC2_DIRECTORIO || 'voltrix-inventario' }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Configurar SSH
+        env:
+          EC2_LLAVE_SSH: ${{ secrets.EC2_LLAVE_SSH }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$EC2_LLAVE_SSH" > ~/.ssh/ec2
+          chmod 600 ~/.ssh/ec2
+          ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts
+
+      - name: Copiar docker-compose.yaml
+        run: |
+          ssh -i ~/.ssh/ec2 "$EC2_USUARIO@$EC2_HOST" "mkdir -p '$DIRECTORIO'"
+          scp -i ~/.ssh/ec2 docker-compose.yaml "$EC2_USUARIO@$EC2_HOST:$DIRECTORIO/docker-compose.yaml"
+
+      - name: Descargar la imagen, reiniciar los contenedores y verificar /health
+        env:
+          IMAGEN: ${{ needs.imagen.outputs.imagen }}
+          TAG: ${{ github.sha }}
+        run: |
+          # La imagen es pública: la EC2 la descarga sin credenciales de registro.
+          ssh -i ~/.ssh/ec2 "$EC2_USUARIO@$EC2_HOST" bash -s -- "$DIRECTORIO" "$IMAGEN" "$TAG" <<'EOF'
+          set -euo pipefail
+          cd "$1"
+          test -f .env || { echo "Falta el archivo .env en $1 (ver .env.example del repositorio)"; exit 1; }
+
+          # Imagen en ejecución antes del despliegue, para volver a ella si algo falla.
+          anterior=""
+          contenedor=$(docker compose ps -q api 2>/dev/null || true)
+          if [ -n "$contenedor" ]; then
+            anterior=$(docker inspect --format '{{.Config.Image}}' "$contenedor")
+            case "$anterior" in *:*) ;; *) anterior="$anterior:latest" ;; esac
+          fi
+
+          export API_IMAGEN="$2" API_TAG="$3"
+          docker compose pull api
+
+          # /health responde 200 solo si la API está arriba y PostgreSQL contesta.
+          verificar() {
+            docker compose up -d --remove-orphans --wait --wait-timeout 120 &&
+              curl -fsS --retry 10 --retry-all-errors --retry-delay 3 \
+                "http://$(docker compose port api 8080)/health"
+          }
+
+          if verificar; then
+            echo
+            echo "Versión desplegada: $API_TAG"
+            docker image prune -f
+            exit 0
+          fi
+
+          echo "La versión $API_TAG no quedó saludable"
+          docker compose logs --tail 50 api || true
+          if [ -n "$anterior" ]; then
+            echo "Restaurando $anterior"
+            export API_IMAGEN="${anterior%:*}" API_TAG="${anterior##*:}"
+            docker compose up -d --wait --wait-timeout 120 api || true
+          fi
+          exit 1
+          EOF

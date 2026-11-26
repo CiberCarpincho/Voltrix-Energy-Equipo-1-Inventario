@@ -1,5 +1,8 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: Voltrix Equipo 1 - API de Inventario y PostgreSQL en EC2
+Description: >-
+  Voltrix Equipo 1 - EC2 para la API de Inventario y PostgreSQL. Deja la instancia lista para el
+  pipeline de CD (.github/workflows/cd.yml), que copia docker-compose.yaml y despliega la imagen.
+  Se crea con infra/ec2/desplegar.sh.
 Parameters:
   VpcId:
     Type: AWS::EC2::VPC::Id
@@ -8,41 +11,74 @@ Parameters:
     Description: Subred de la VPC con ruta a un Internet Gateway
   ApiClientCidr:
     Type: String
-    Description: CIDR IPv4 de clientes autorizados a consultar la API
+    Default: 0.0.0.0/0
+    Description: CIDR IPv4 de clientes autorizados a consultar la API (los demás equipos)
+  SshClientCidr:
+    Type: String
+    Default: 0.0.0.0/0
+    Description: CIDR IPv4 autorizado para SSH (el pipeline de CD entra desde runners de GitHub con IP variable; el acceso exige la llave)
   InstanceType:
     Type: String
+    Default: t3.micro
     AllowedValues: [t3.micro, t2.micro]
-    Description: Tipo x86 de 1 GiB validado para la cuenta y region
-  SourceCommit:
-    Type: String
-    AllowedPattern: '[a-f0-9]{40}'
-    Description: SHA publicado en el repositorio con el codigo de HU-04
+    Description: Tipo x86 de 1 GiB elegible en la cuenta y la región
   UbuntuImage:
     Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
     Default: /aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id
 Resources:
+  # Llave SSH del pipeline. AWS guarda la llave privada en Parameter Store
+  # (/ec2/keypair/<KeyPairId>); desplegar.sh la lee y la carga en el secreto EC2_LLAVE_SSH.
+  LlaveDespliegue:
+    Type: AWS::EC2::KeyPair
+    Properties:
+      KeyName: !Sub '${AWS::StackName}-cd'
+      KeyType: ed25519
   ApiSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: Acceso HTTP a Inventario
+      GroupDescription: Acceso HTTP a Inventario y SSH del pipeline de CD
       VpcId: !Ref VpcId
       SecurityGroupIngress:
         - IpProtocol: tcp
           FromPort: 8080
           ToPort: 8080
           CidrIp: !Ref ApiClientCidr
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref SshClientCidr
+  # IP pública fija: no cambia al detener o reiniciar la instancia, así el secreto EC2_HOST y
+  # el directorio compartido de servicios no quedan desactualizados. Se asocia a la interfaz de
+  # red antes de que la instancia arranque, para que la instalación tenga salida a Internet.
+  InterfazRed:
+    Type: AWS::EC2::NetworkInterface
+    Properties:
+      SubnetId: !Ref PublicSubnet
+      GroupSet: [!Ref ApiSecurityGroup]
+  IpPublica:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: Voltrix-Equipo-1-Inventario
+  AsociacionIpPublica:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      AllocationId: !GetAtt IpPublica.AllocationId
+      NetworkInterfaceId: !Ref InterfazRed
   InventoryHost:
     Type: AWS::EC2::Instance
+    DependsOn: AsociacionIpPublica
     Properties:
       InstanceType: !Ref InstanceType
       ImageId: !Ref UbuntuImage
+      KeyName: !Ref LlaveDespliegue
       MetadataOptions:
         HttpTokens: required
       NetworkInterfaces:
         - DeviceIndex: '0'
-          AssociatePublicIpAddress: true
-          SubnetId: !Ref PublicSubnet
-          GroupSet: [!Ref ApiSecurityGroup]
+          NetworkInterfaceId: !Ref InterfazRed
       Tags:
         - Key: Name
           Value: Voltrix-Equipo-1-Inventario
@@ -60,24 +96,28 @@ Resources:
           fi
           export DEBIAN_FRONTEND=noninteractive
           apt-get -o Acquire::Retries=3 update
-          apt-get -o Acquire::Retries=3 install -y docker.io docker-compose-v2 git openssl curl
+          apt-get -o Acquire::Retries=3 install -y docker.io docker-compose-v2 openssl curl
           systemctl enable --now docker
-          git clone https://github.com/CiberCarpincho/Voltrix-Energy-Equipo-1-Inventario.git /opt/voltrix
-          cd /opt/voltrix
-          git checkout --detach '${SourceCommit}'
-          cd deploy/compose
-          umask 077
-          printf 'POSTGRES_PASSWORD=%s\n' "$(openssl rand -hex 32)" > .env
-          docker compose up -d --build --wait --wait-timeout 120
-          curl --fail --retry 12 --retry-connrefused --retry-delay 2 http://localhost:8080/health
-          echo
-          docker compose ps
-          docker stats --no-stream
+          usermod -aG docker ubuntu
+          # Carpeta del despliegue: el pipeline de CD copia aqui docker-compose.yaml y levanta los contenedores.
+          dir=/home/ubuntu/voltrix-inventario
+          install -d -o ubuntu -g ubuntu -m 0750 "$dir"
+          if [ ! -f "$dir/.env" ]; then
+            umask 077
+            printf 'POSTGRES_PASSWORD=%s\nAPI_PUERTO_HOST=8080\n' "$(openssl rand -hex 32)" > "$dir/.env"
+            chown ubuntu:ubuntu "$dir/.env"
+          fi
           free -m
           swapon --show
-          bash /opt/voltrix/infra/ec2/cd/instalar.sh /opt/voltrix
+          echo "Instancia lista para el pipeline de CD"
 Outputs:
+  PublicIp:
+    Description: IP elástica de la instancia (secreto EC2_HOST)
+    Value: !Ref IpPublica
   ApiUrl:
-    Value: !Sub 'http://${InventoryHost.PublicIp}:8080'
+    Value: !Sub 'http://${IpPublica}:8080'
+  LlaveId:
+    Description: KeyPairId; la llave privada está en Parameter Store, /ec2/keypair/<LlaveId>
+    Value: !GetAtt LlaveDespliegue.KeyPairId
   InstanceId:
     Value: !Ref InventoryHost
