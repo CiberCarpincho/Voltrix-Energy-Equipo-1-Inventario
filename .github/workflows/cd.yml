@@ -2,7 +2,8 @@
 #
 # Corre en cada push a main (al fusionar develop en main) o a mano desde la pestaña Actions.
 # El código ya pasó la integración continua en develop (ci.yml).
-#   1. imagen ....... construye la imagen Docker y la publica en GHCR (:<commit> y :latest).
+#   1. imagen ....... construye la imagen Docker, la publica en GHCR (:<commit> y :latest) y
+#                     comprueba que se pueda descargar sin credenciales.
 #   2. despliegue ... copia docker-compose.yaml a la EC2 por SSH, descarga la imagen,
 #                     reinicia los contenedores y verifica /health. Si la versión nueva no queda
 #                     saludable, vuelve a la imagen que estaba corriendo y el job falla.
@@ -13,6 +14,10 @@
 #   EC2_LLAVE_SSH   llave privada SSH (contenido completo del archivo)
 # Variable opcional: EC2_DIRECTORIO (carpeta del despliegue en la EC2; por defecto voltrix-inventario,
 # relativa al home del usuario). Ahí debe existir el .env (ver .env.example).
+#
+# La imagen en GHCR es pública: la EC2 y el clúster de Floci la descargan sin docker login ni
+# secretos de registro. Un paquete nuevo de GHCR nace privado; la primera vez hay que hacerlo
+# público (ver el paso "Comprobar que la imagen es pública").
 
 name: CD
 
@@ -73,6 +78,21 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      # Descarga anónima del manifiesto, como lo harán la EC2 y Floci.
+      - name: Comprobar que la imagen es pública
+        env:
+          IMAGEN: ${{ steps.nombre.outputs.imagen }}
+        run: |
+          ruta="${IMAGEN#ghcr.io/}"
+          # Con una imagen privada, GHCR niega incluso el token anónimo.
+          token=$(curl -fsS "https://ghcr.io/token?scope=repository:${ruta}:pull" | jq -r .token) || token=""
+          if ! curl -fsS -o /dev/null -H "Authorization: Bearer ${token}" \
+            -H "Accept: application/vnd.oci.image.index.v1+json,application/vnd.oci.image.manifest.v1+json,application/vnd.docker.distribution.manifest.list.v2+json,application/vnd.docker.distribution.manifest.v2+json" \
+            "https://ghcr.io/v2/${ruta}/manifests/latest"; then
+            echo "::error::La imagen ${IMAGEN} es privada. Un administrador debe hacerla pública una vez en https://github.com/orgs/${GITHUB_REPOSITORY_OWNER}/packages/container/${NOMBRE_IMAGEN}/settings (Danger Zone > Change visibility > Public) y luego volver a ejecutar este workflow."
+            exit 1
+          fi
+
   despliegue:
     name: Desplegar en AWS EC2
     needs: imagen
@@ -80,7 +100,6 @@ jobs:
     environment: produccion
     permissions:
       contents: read
-      packages: read
     env:
       EC2_HOST: ${{ secrets.EC2_HOST }}
       EC2_USUARIO: ${{ secrets.EC2_USUARIO }}
@@ -106,12 +125,8 @@ jobs:
         env:
           IMAGEN: ${{ needs.imagen.outputs.imagen }}
           TAG: ${{ github.sha }}
-          GHCR_USUARIO: ${{ github.actor }}
-          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # El token de GHCR viaja por la entrada estándar (no queda en la línea de comandos).
-          printf '%s' "$GHCR_TOKEN" | ssh -i ~/.ssh/ec2 "$EC2_USUARIO@$EC2_HOST" \
-            "docker login ghcr.io -u '$GHCR_USUARIO' --password-stdin"
+          # La imagen es pública: la EC2 la descarga sin credenciales de registro.
           ssh -i ~/.ssh/ec2 "$EC2_USUARIO@$EC2_HOST" bash -s -- "$DIRECTORIO" "$IMAGEN" "$TAG" <<'EOF'
           set -euo pipefail
           cd "$1"
@@ -127,7 +142,6 @@ jobs:
 
           export API_IMAGEN="$2" API_TAG="$3"
           docker compose pull api
-          docker logout ghcr.io
 
           # /health responde 200 solo si la API está arriba y PostgreSQL contesta.
           verificar() {
