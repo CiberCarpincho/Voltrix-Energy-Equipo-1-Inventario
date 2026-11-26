@@ -1,0 +1,1681 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Voltrix Energy · Inventario de Activos",
+    "version": "1.0.0",
+    "description": "Contrato HTTP del servicio **Inventario de Activos** (Equipo 1), servicio raíz de la\nplataforma Voltrix Energy. Mantiene el catálogo de plantas y de activos físicos\n(paneles solares, turbinas y bancos de baterías) con su estado operativo vigente.\n\n**Consumidores previstos**\n\n| Equipo | Servicio | Operaciones que usa |\n|---|---|---|\n| 2 | Telemetría de Plantas | `POST /activos/consulta`, `POST /activos/actualizaciones-estado`, `GET /activos/{id}` |\n| 4 | Reportes de Generación | `GET /plantas`, `GET /activos?plantaId=` |\n| 5 | Pronóstico de Generación | `GET /plantas`, `GET /plantas/{plantaId}`, `GET /activos?plantaId=` |\n| 6 | Mantenimiento Predictivo | `GET /activos?estado=`, `GET /activos/{id}` |\n\n**Convenciones**\n\n- Identificadores de planta: `PL-001` … `PL-080`. Identificadores de activo:\n  `<plantaId>-<tipo>-<nn>`, con tipo `PS` (panel solar), `TB` (turbina) o `BB` (banco de baterías).\n  Ejemplo: `PL-001-PS-07`.\n- Las fechas usan RFC 3339 **con zona horaria** (`2026-11-19T14:00:00Z` o `2026-11-19T09:00:00-05:00`).\n- Cada consumidor envía `X-Equipo-Consumidor` (por ejemplo `equipo-2`) para que los logs del\n  proveedor identifiquen la llamada. Toda respuesta incluye `X-Request-Id`.\n- Ante sobrecarga el servicio responde `429` con `Retry-After`. Si la base de datos no está\n  disponible responde `503`.\n- La URL base de EC2 se publica en la hoja compartida de coordinación (no se fija en el código\n  de los consumidores).\n",
+    "contact": {
+      "name": "Equipo 1 · Inventario de Activos"
+    }
+  },
+  "servers": [
+    {
+      "url": "http://{host}:{puerto}",
+      "description": "Despliegue del Componente B (EC2) o entorno local. La dirección vigente está en la hoja compartida.",
+      "variables": {
+        "host": {
+          "default": "localhost",
+          "description": "IP pública o DNS de la instancia EC2."
+        },
+        "puerto": {
+          "default": "8080"
+        }
+      }
+    }
+  ],
+  "tags": [
+    {
+      "name": "Plantas",
+      "description": "Catálogo de microplantas."
+    },
+    {
+      "name": "Activos",
+      "description": "Catálogo de activos y consulta de su estado vigente."
+    },
+    {
+      "name": "Lotes",
+      "description": "Operaciones masivas procesadas en paralelo (requisito de paralelismo del Equipo 1)."
+    },
+    {
+      "name": "Operación",
+      "description": "Salud del servicio y publicación del contrato."
+    }
+  ],
+  "paths": {
+    "/plantas": {
+      "post": {
+        "tags": [
+          "Plantas"
+        ],
+        "operationId": "crearPlanta",
+        "summary": "Registrar una planta",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EquipoConsumidor"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlantaAlta"
+              },
+              "examples": {
+                "solar": {
+                  "summary": "Planta solar",
+                  "value": {
+                    "id": "PL-001",
+                    "nombre": "Microplanta Solar Jamundí",
+                    "tipo": "solar",
+                    "clienteId": "CLI-COOP-01",
+                    "municipio": "Jamundí",
+                    "capacidadInstaladaKw": 120.5
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Planta creada.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/X-Request-Id"
+              },
+              "Location": {
+                "description": "Ruta del recurso creado.",
+                "schema": {
+                  "type": "string",
+                  "example": "/plantas/PL-001"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Planta"
+                },
+                "examples": {
+                  "creada": {
+                    "$ref": "#/components/examples/PlantaSolar"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/SolicitudInvalida"
+          },
+          "409": {
+            "$ref": "#/components/responses/Duplicado"
+          },
+          "429": {
+            "$ref": "#/components/responses/Sobrecarga"
+          },
+          "503": {
+            "$ref": "#/components/responses/NoDisponible"
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Plantas"
+        ],
+        "operationId": "listarPlantas",
+        "summary": "Listar plantas registradas",
+        "description": "Usado por Pronóstico y Reportes para iterar planta por planta. Resultado ordenado por `id`.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EquipoConsumidor"
+          },
+          {
+            "name": "tipo",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/TipoPlanta"
+            }
+          },
+          {
+            "name": "clienteId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/Identificador"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "$ref": "#/components/parameters/Offset"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Página de plantas.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/X-Request-Id"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginaPlantas"
+                },
+                "examples": {
+                  "pagina": {
+                    "summary": "Primera página",
+                    "value": {
+                      "datos": [
+                        {
+                          "id": "PL-001",
+                          "nombre": "Microplanta Solar Jamundí",
+                          "tipo": "solar",
+                          "clienteId": "CLI-COOP-01",
+                          "municipio": "Jamundí",
+                          "capacidadInstaladaKw": 120.5,
+                          "creadoEn": "2026-11-19T13:00:00Z"
+                        },
+                        {
+                          "id": "PL-002",
+                          "nombre": "Microplanta Eólica La Cumbre",
+                          "tipo": "eolica",
+                          "clienteId": "CLI-COOP-01",
+                          "municipio": "La Cumbre",
+                          "capacidadInstaladaKw": 200,
+                          "creadoEn": "2026-11-19T13:00:00Z"
+                        }
+                      ],
+                      "total": 80,
+                      "limit": 2,
+                      "offset": 0
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/SolicitudInvalida"
+          },
+          "429": {
+            "$ref": "#/components/responses/Sobrecarga"
+          },
+          "503": {
+            "$ref": "#/components/responses/NoDisponible"
+          }
+        }
+      }
+    },
+    "/plantas/{plantaId}": {
+      "get": {
+        "tags": [
+          "Plantas"
+        ],
+        "operationId": "consultarPlanta",
+        "summary": "Consultar una planta con el resumen de sus activos",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/PlantaId"
+          },
+          {
+            "$ref": "#/components/parameters/EquipoConsumidor"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Planta encontrada.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/X-Request-Id"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlantaDetalle"
+                },
+                "examples": {
+                  "hibrida": {
+                    "summary": "Planta híbrida con un activo en mantenimiento",
+                    "value": {
+                      "id": "PL-003",
+                      "nombre": "Microplanta Híbrida Dagua",
+                      "tipo": "hibrida",
+                      "clienteId": "CLI-IND-04",
+                      "municipio": "Dagua",
+                      "capacidadInstaladaKw": 180,
+                      "creadoEn": "2026-11-19T13:00:00Z",
+                      "resumen": {
+                        "totalActivos": 16,
+                        "porTipo": {
+                          "panel_solar": 10,
+                          "turbina": 2,
+                          "banco_baterias": 4
+                        },
+                        "porEstado": {
+                          "operativo": 15,
+                          "en_mantenimiento": 1,
+                          "fuera_de_servicio": 0
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NoEncontrado"
+          },
+          "429": {
+            "$ref": "#/components/responses/Sobrecarga"
+          },
+          "503": {
+            "$ref": "#/components/responses/NoDisponible"
+          }
+        }
+      }
+    },
+    "/activos": {
+      "post": {
+        "tags": [
+          "Activos"
+        ],
+        "operationId": "crearActivo",
+        "summary": "Registrar un activo en una planta existente",
+        "description": "El servidor asigna `actualizadoEn`. Si `estado` se omite, el activo nace `operativo`.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EquipoConsumidor"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ActivoAlta"
+              },
+              "examples": {
+                "panel": {
+                  "summary": "Panel solar",
+                  "value": {
+                    "id": "PL-001-PS-07",
+                    "plantaId": "PL-001",
+                    "tipo": "panel_solar",
+                    "capacidadNominalKw": 0.55,
+                    "fechaInstalacion": "2025-03-14"
+                  }
+                },
+                "turbina": {
+                  "summary": "Turbina eólica",
+                  "value": {
+                    "id": "PL-002-TB-01",
+                    "plantaId": "PL-002",
+                    "tipo": "turbina",
+                    "estado": "operativo",
+                    "capacidadNominalKw": 50,
+                    "fechaInstalacion": "2024-08-02"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Activo creado.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/X-Request-Id"
+              },
+              "Location": {
+                "description": "Ruta del recurso creado.",
+                "schema": {
+                  "type": "string",
+                  "example": "/activos/PL-001-PS-07"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Activo"
+                },
+                "examples": {
+                  "creado": {
+                    "$ref": "#/components/examples/ActivoPanel"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/SolicitudInvalida"
+          },
+          "409": {
+            "$ref": "#/components/responses/Duplicado"
+          },
+          "422": {
+            "description": "La planta indicada no existe.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/X-Request-Id"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "codigo": "PLANTA_DESCONOCIDA",
+                  "mensaje": "La planta PL-999 no está registrada.",
+                  "requestId": "7f3c1a2e-5b8d-4c1e-9a0f-2d6b8e4f1c33"
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/Sobrecarga"
+          },
+          "503": {
+            "$ref": "#/components/responses/NoDisponible"
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Activos"
+        ],
+        "operationId": "listarActivos",
+        "summary": "Listar activos con filtros y paginación",
+        "description": "Todos los filtros son opcionales y se combinan con AND. Resultado ordenado por `id`.\nReportes y Pronóstico lo usan con `plantaId`; Mantenimiento con `estado`.\n",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EquipoConsumidor"
+          },
+          {
+            "name": "plantaId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/Identificador"
+            }
+          },
+          {
+            "name": "tipo",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/TipoActivo"
+            }
+          },
+          {
+            "name": "estado",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/EstadoActivo"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "$ref": "#/components/parameters/Offset"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Página de activos.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/X-Request-Id"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginaActivos"
+                },
+                "examples": {
+                  "porPlanta": {
+                    "summary": "GET /activos?plantaId=PL-002&limit=2",
+                    "value": {
+                      "datos": [
+                        {
+                          "id": "PL-002-BB-01",
+                          "plantaId": "PL-002",
+                          "tipo": "banco_baterias",
+                          "estado": "operativo",
+                          "capacidadNominalKw": 30,
+                          "fechaInstalacion": "2024-08-02",
+                          "actualizadoEn": "2026-11-19T13:00:00Z"
+                        },
+                        {
+                          "id": "PL-002-TB-01",
+                          "plantaId": "PL-002",
+                          "tipo": "turbina",
+                          "estado": "en_mantenimiento",
+                          "capacidadNominalKw": 50,
+                          "fechaInstalacion": "2024-08-02",
+                          "actualizadoEn": "2026-11-19T14:00:00Z"
+                        }
+                      ],
+                      "total": 6,
+                      "limit": 2,
+                      "offset": 0
+                    }
+                  },
+                  "vacio": {
+                    "summary": "Ningún activo cumple los filtros",
+                    "value": {
+                      "datos": [],
+                      "total": 0,
+                      "limit": 50,
+                      "offset": 0
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/SolicitudInvalida"
+          },
+          "429": {
+            "$ref": "#/components/responses/Sobrecarga"
+          },
+          "503": {
+            "$ref": "#/components/responses/NoDisponible"
+          }
+        }
+      }
+    },
+    "/activos/{id}": {
+      "get": {
+        "tags": [
+          "Activos"
+        ],
+        "operationId": "consultarActivo",
+        "summary": "Consultar un activo por identificador",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ActivoId"
+          },
+          {
+            "$ref": "#/components/parameters/EquipoConsumidor"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Activo encontrado.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/X-Request-Id"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Activo"
+                },
+                "examples": {
+                  "panel": {
+                    "$ref": "#/components/examples/ActivoPanel"
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NoEncontrado"
+          },
+          "429": {
+            "$ref": "#/components/responses/Sobrecarga"
+          },
+          "503": {
+            "$ref": "#/components/responses/NoDisponible"
+          }
+        }
+      }
+    },
+    "/activos/consulta": {
+      "post": {
+        "tags": [
+          "Lotes"
+        ],
+        "operationId": "consultarLoteActivos",
+        "summary": "Consultar varios activos en una sola llamada",
+        "description": "Pensado para que Telemetría valide un lote de lecturas sin hacer una llamada por activo.\nLos identificadores inexistentes no producen error: se devuelven en `desconocidos`.\n`encontrados` conserva el orden de `ids`.\n",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EquipoConsumidor"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConsultaLote"
+              },
+              "example": {
+                "ids": [
+                  "PL-001-PS-07",
+                  "PL-002-TB-01",
+                  "PL-999-PS-01"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Resultado de la consulta.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/X-Request-Id"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResultadoConsulta"
+                },
+                "example": {
+                  "encontrados": [
+                    {
+                      "id": "PL-001-PS-07",
+                      "plantaId": "PL-001",
+                      "tipo": "panel_solar",
+                      "estado": "operativo",
+                      "capacidadNominalKw": 0.55,
+                      "fechaInstalacion": "2025-03-14",
+                      "actualizadoEn": "2026-11-19T13:00:00Z"
+                    },
+                    {
+                      "id": "PL-002-TB-01",
+                      "plantaId": "PL-002",
+                      "tipo": "turbina",
+                      "estado": "en_mantenimiento",
+                      "capacidadNominalKw": 50,
+                      "fechaInstalacion": "2024-08-02",
+                      "actualizadoEn": "2026-11-19T14:00:00Z"
+                    }
+                  ],
+                  "desconocidos": [
+                    "PL-999-PS-01"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/SolicitudInvalida"
+          },
+          "429": {
+            "$ref": "#/components/responses/Sobrecarga"
+          },
+          "503": {
+            "$ref": "#/components/responses/NoDisponible"
+          }
+        }
+      }
+    },
+    "/activos/actualizaciones-estado": {
+      "post": {
+        "tags": [
+          "Lotes"
+        ],
+        "operationId": "actualizarEstadoLote",
+        "summary": "Aplicar un lote de cambios de estado (procesamiento paralelo)",
+        "description": "Acepta de 1 a 100 cambios con identificadores no repetidos. El lote se reparte entre un grupo\nacotado de workers; cada cambio se aplica en una transacción corta con bloqueo de fila, por lo\nque el resultado es correcto aunque haya varias réplicas del servicio.\n\nReglas por elemento (el resultado se devuelve en la misma posición de entrada):\n\n| Situación | `resultado` |\n|---|---|\n| `actualizadoEn` posterior al vigente y transición permitida | `actualizado` |\n| Mismo instante y mismo estado (reenvío) | `sin_cambios` |\n| `actualizadoEn` anterior al vigente | `anterior` |\n| Mismo instante y estado distinto | `conflicto` |\n| Transición no permitida (p. ej. `fuera_de_servicio` → `operativo`) | `transicion_invalida` |\n| El activo no existe | `desconocido` |\n\nTransiciones permitidas: `operativo` → `en_mantenimiento` | `fuera_de_servicio`;\n`en_mantenimiento` → `operativo` | `fuera_de_servicio`; `fuera_de_servicio` → `en_mantenimiento`.\n\nLa operación es idempotente: si se interrumpe, el consumidor puede reenviar el mismo lote\nconservando las marcas temporales.\n",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EquipoConsumidor"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoteCambios"
+              },
+              "examples": {
+                "telemetria": {
+                  "summary": "Lote enviado por Telemetría",
+                  "value": {
+                    "cambios": [
+                      {
+                        "id": "PL-001-PS-07",
+                        "estado": "fuera_de_servicio",
+                        "actualizadoEn": "2026-11-19T14:05:00Z",
+                        "origen": "telemetria"
+                      },
+                      {
+                        "id": "PL-002-TB-01",
+                        "estado": "operativo",
+                        "actualizadoEn": "2026-11-19T13:30:00Z",
+                        "origen": "telemetria"
+                      },
+                      {
+                        "id": "PL-003-BB-02",
+                        "estado": "en_mantenimiento",
+                        "actualizadoEn": "2026-11-19T14:05:00Z",
+                        "origen": "telemetria"
+                      },
+                      {
+                        "id": "PL-999-PS-01",
+                        "estado": "operativo",
+                        "actualizadoEn": "2026-11-19T14:05:00Z",
+                        "origen": "telemetria"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Lote procesado. Cada elemento tiene su propio resultado; un elemento fallido no invalida los demás.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/X-Request-Id"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResultadoLote"
+                },
+                "examples": {
+                  "mixto": {
+                    "summary": "Respuesta al lote de ejemplo",
+                    "value": {
+                      "resultados": [
+                        {
+                          "id": "PL-001-PS-07",
+                          "resultado": "actualizado",
+                          "estadoVigente": "fuera_de_servicio",
+                          "actualizadoEn": "2026-11-19T14:05:00Z"
+                        },
+                        {
+                          "id": "PL-002-TB-01",
+                          "resultado": "anterior",
+                          "estadoVigente": "en_mantenimiento",
+                          "actualizadoEn": "2026-11-19T14:00:00Z"
+                        },
+                        {
+                          "id": "PL-003-BB-02",
+                          "resultado": "actualizado",
+                          "estadoVigente": "en_mantenimiento",
+                          "actualizadoEn": "2026-11-19T14:05:00Z"
+                        },
+                        {
+                          "id": "PL-999-PS-01",
+                          "resultado": "desconocido"
+                        }
+                      ],
+                      "resumen": {
+                        "actualizado": 2,
+                        "sin_cambios": 0,
+                        "anterior": 1,
+                        "conflicto": 0,
+                        "transicion_invalida": 0,
+                        "desconocido": 1
+                      },
+                      "duracionMs": 18,
+                      "workers": 4
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Estructura inválida, lote vacío o de más de 100 cambios, o identificadores repetidos. No se aplica ningún cambio.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/X-Request-Id"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "repetidos": {
+                    "summary": "Identificador repetido",
+                    "value": {
+                      "codigo": "IDS_REPETIDOS",
+                      "mensaje": "El lote contiene identificadores repetidos.",
+                      "requestId": "1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed",
+                      "detalles": [
+                        {
+                          "campo": "cambios[3].id",
+                          "problema": "PL-001-PS-07 ya aparece en cambios[0]"
+                        }
+                      ]
+                    }
+                  },
+                  "tamano": {
+                    "summary": "Lote demasiado grande",
+                    "value": {
+                      "codigo": "LOTE_FUERA_DE_RANGO",
+                      "mensaje": "El lote debe tener entre 1 y 100 cambios.",
+                      "requestId": "6ec0bd7f-11c0-43da-975e-2a8ad9ebae0b"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/Sobrecarga"
+          },
+          "503": {
+            "$ref": "#/components/responses/NoDisponible"
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "tags": [
+          "Operación"
+        ],
+        "operationId": "consultarSalud",
+        "summary": "Comprobar la disponibilidad del servicio y de su base de datos",
+        "description": "Hace un ping a PostgreSQL con tiempo de espera de 1 s. No exige `X-Equipo-Consumidor`.",
+        "responses": {
+          "200": {
+            "description": "Servicio disponible.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Salud"
+                },
+                "example": {
+                  "estado": "disponible",
+                  "baseDatos": "ok",
+                  "version": "1.0.0",
+                  "tiempoActivoSeg": 3600
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "El servicio no puede acceder a la base de datos.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Salud"
+                },
+                "example": {
+                  "estado": "no_disponible",
+                  "baseDatos": "error",
+                  "version": "1.0.0",
+                  "tiempoActivoSeg": 3600
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/openapi.yaml": {
+      "get": {
+        "tags": [
+          "Operación"
+        ],
+        "operationId": "obtenerContrato",
+        "summary": "Descargar este contrato",
+        "description": "URL que se registra en la columna \"URL del contrato OpenAPI\" de la hoja compartida.",
+        "responses": {
+          "200": {
+            "description": "Contrato en formato YAML.",
+            "content": {
+              "application/yaml": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "parameters": {
+      "EquipoConsumidor": {
+        "name": "X-Equipo-Consumidor",
+        "in": "header",
+        "required": false,
+        "description": "Equipo que hace la llamada. Se registra en los logs como evidencia de consumo entre células.",
+        "schema": {
+          "type": "string",
+          "pattern": "^equipo-[1-7]$",
+          "example": "equipo-2"
+        }
+      },
+      "ActivoId": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "$ref": "#/components/schemas/Identificador"
+        },
+        "example": "PL-001-PS-07"
+      },
+      "PlantaId": {
+        "name": "plantaId",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "$ref": "#/components/schemas/Identificador"
+        },
+        "example": "PL-003"
+      },
+      "Limit": {
+        "name": "limit",
+        "in": "query",
+        "required": false,
+        "description": "Tamaño de página.",
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200,
+          "default": 50
+        }
+      },
+      "Offset": {
+        "name": "offset",
+        "in": "query",
+        "required": false,
+        "description": "Número de elementos a omitir.",
+        "schema": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0
+        }
+      }
+    },
+    "headers": {
+      "X-Request-Id": {
+        "description": "Identificador de la petición, presente también en los logs del servicio.",
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "Retry-After": {
+        "description": "Segundos que el consumidor debe esperar antes de reintentar.",
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "example": 1
+        }
+      }
+    },
+    "responses": {
+      "SolicitudInvalida": {
+        "description": "La solicitud no cumple el contrato.",
+        "headers": {
+          "X-Request-Id": {
+            "$ref": "#/components/headers/X-Request-Id"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "codigo": "SOLICITUD_INVALIDA",
+              "mensaje": "La solicitud no cumple el contrato.",
+              "requestId": "0a4e9c1d-3f2b-4e8a-b7c6-5d1e2f3a4b5c",
+              "detalles": [
+                {
+                  "campo": "tipo",
+                  "problema": "debe ser panel_solar, turbina o banco_baterias"
+                }
+              ]
+            }
+          }
+        }
+      },
+      "NoEncontrado": {
+        "description": "El recurso no existe.",
+        "headers": {
+          "X-Request-Id": {
+            "$ref": "#/components/headers/X-Request-Id"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "codigo": "NO_ENCONTRADO",
+              "mensaje": "El activo PL-999-PS-01 no existe.",
+              "requestId": "9c2f7e4a-1d3b-4a6c-8e5f-0b7d9a1c3e2f"
+            }
+          }
+        }
+      },
+      "Duplicado": {
+        "description": "Ya existe un recurso con ese identificador.",
+        "headers": {
+          "X-Request-Id": {
+            "$ref": "#/components/headers/X-Request-Id"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "codigo": "DUPLICADO",
+              "mensaje": "Ya existe un recurso con el identificador PL-001-PS-07.",
+              "requestId": "4d8b2a6e-7c1f-4e3a-9b5d-2f6a8c0e1b4d"
+            }
+          }
+        }
+      },
+      "Sobrecarga": {
+        "description": "Capacidad de admisión agotada. Reintentar después de `Retry-After` segundos.",
+        "headers": {
+          "Retry-After": {
+            "$ref": "#/components/headers/Retry-After"
+          },
+          "X-Request-Id": {
+            "$ref": "#/components/headers/X-Request-Id"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "codigo": "SOBRECARGA",
+              "mensaje": "El servicio está atendiendo el máximo de peticiones simultáneas.",
+              "requestId": "2e7a4c9b-6d1f-4b8e-a3c5-7f0d2b9e4a1c"
+            }
+          }
+        }
+      },
+      "NoDisponible": {
+        "description": "Base de datos o servicio no disponible.",
+        "headers": {
+          "X-Request-Id": {
+            "$ref": "#/components/headers/X-Request-Id"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "codigo": "NO_DISPONIBLE",
+              "mensaje": "No hay conexión con la base de datos.",
+              "requestId": "8f1b3d5a-2c7e-4f9a-b6d0-1e4c7a9b2d5f"
+            }
+          }
+        }
+      }
+    },
+    "examples": {
+      "PlantaSolar": {
+        "summary": "Planta solar",
+        "value": {
+          "id": "PL-001",
+          "nombre": "Microplanta Solar Jamundí",
+          "tipo": "solar",
+          "clienteId": "CLI-COOP-01",
+          "municipio": "Jamundí",
+          "capacidadInstaladaKw": 120.5,
+          "creadoEn": "2026-11-19T13:00:00Z"
+        }
+      },
+      "ActivoPanel": {
+        "summary": "Panel solar operativo",
+        "value": {
+          "id": "PL-001-PS-07",
+          "plantaId": "PL-001",
+          "tipo": "panel_solar",
+          "estado": "operativo",
+          "capacidadNominalKw": 0.55,
+          "fechaInstalacion": "2025-03-14",
+          "actualizadoEn": "2026-11-19T13:00:00Z"
+        }
+      }
+    },
+    "schemas": {
+      "Identificador": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 64,
+        "pattern": "^[A-Za-z0-9_-]+$",
+        "example": "PL-001-PS-07"
+      },
+      "TipoPlanta": {
+        "type": "string",
+        "enum": [
+          "solar",
+          "eolica",
+          "hibrida"
+        ]
+      },
+      "TipoActivo": {
+        "type": "string",
+        "enum": [
+          "panel_solar",
+          "turbina",
+          "banco_baterias"
+        ]
+      },
+      "EstadoActivo": {
+        "type": "string",
+        "enum": [
+          "operativo",
+          "en_mantenimiento",
+          "fuera_de_servicio"
+        ]
+      },
+      "PlantaAlta": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "nombre",
+          "tipo",
+          "clienteId"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Identificador"
+          },
+          "nombre": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "tipo": {
+            "$ref": "#/components/schemas/TipoPlanta"
+          },
+          "clienteId": {
+            "$ref": "#/components/schemas/Identificador"
+          },
+          "municipio": {
+            "type": "string",
+            "maxLength": 120
+          },
+          "capacidadInstaladaKw": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Capacidad declarada de la planta. Si se omite, se calcula como la suma de sus activos de generación."
+          }
+        }
+      },
+      "Planta": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "nombre",
+          "tipo",
+          "clienteId",
+          "capacidadInstaladaKw",
+          "creadoEn"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Identificador"
+          },
+          "nombre": {
+            "type": "string"
+          },
+          "tipo": {
+            "$ref": "#/components/schemas/TipoPlanta"
+          },
+          "clienteId": {
+            "$ref": "#/components/schemas/Identificador"
+          },
+          "municipio": {
+            "type": "string"
+          },
+          "capacidadInstaladaKw": {
+            "type": "number",
+            "minimum": 0
+          },
+          "creadoEn": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "PlantaDetalle": {
+        "description": "Igual que `Planta`, más el resumen de sus activos.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "nombre",
+          "tipo",
+          "clienteId",
+          "capacidadInstaladaKw",
+          "creadoEn",
+          "resumen"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Identificador"
+          },
+          "nombre": {
+            "type": "string"
+          },
+          "tipo": {
+            "$ref": "#/components/schemas/TipoPlanta"
+          },
+          "clienteId": {
+            "$ref": "#/components/schemas/Identificador"
+          },
+          "municipio": {
+            "type": "string"
+          },
+          "capacidadInstaladaKw": {
+            "type": "number",
+            "minimum": 0
+          },
+          "creadoEn": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "resumen": {
+            "$ref": "#/components/schemas/ResumenActivos"
+          }
+        }
+      },
+      "ResumenActivos": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "totalActivos",
+          "porTipo",
+          "porEstado"
+        ],
+        "properties": {
+          "totalActivos": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "porTipo": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "panel_solar",
+              "turbina",
+              "banco_baterias"
+            ],
+            "properties": {
+              "panel_solar": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "turbina": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "banco_baterias": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          },
+          "porEstado": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "operativo",
+              "en_mantenimiento",
+              "fuera_de_servicio"
+            ],
+            "properties": {
+              "operativo": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "en_mantenimiento": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "fuera_de_servicio": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          }
+        }
+      },
+      "ActivoAlta": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "plantaId",
+          "tipo",
+          "capacidadNominalKw"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Identificador"
+          },
+          "plantaId": {
+            "$ref": "#/components/schemas/Identificador"
+          },
+          "tipo": {
+            "$ref": "#/components/schemas/TipoActivo"
+          },
+          "estado": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/EstadoActivo"
+              }
+            ],
+            "default": "operativo"
+          },
+          "capacidadNominalKw": {
+            "type": "number",
+            "exclusiveMinimum": true,
+            "minimum": 0,
+            "description": "Potencia nominal (paneles y turbinas) o potencia máxima de descarga (baterías), en kW."
+          },
+          "fechaInstalacion": {
+            "type": "string",
+            "format": "date"
+          }
+        }
+      },
+      "Activo": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "plantaId",
+          "tipo",
+          "estado",
+          "capacidadNominalKw",
+          "actualizadoEn"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Identificador"
+          },
+          "plantaId": {
+            "$ref": "#/components/schemas/Identificador"
+          },
+          "tipo": {
+            "$ref": "#/components/schemas/TipoActivo"
+          },
+          "estado": {
+            "$ref": "#/components/schemas/EstadoActivo"
+          },
+          "capacidadNominalKw": {
+            "type": "number"
+          },
+          "fechaInstalacion": {
+            "type": "string",
+            "format": "date"
+          },
+          "actualizadoEn": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Instante del último cambio de estado aplicado."
+          }
+        }
+      },
+      "PaginaPlantas": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "datos",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "properties": {
+          "datos": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Planta"
+            }
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "offset": {
+            "type": "integer"
+          }
+        }
+      },
+      "PaginaActivos": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "datos",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "properties": {
+          "datos": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Activo"
+            }
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "offset": {
+            "type": "integer"
+          }
+        }
+      },
+      "ConsultaLote": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ids"
+        ],
+        "properties": {
+          "ids": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 200,
+            "uniqueItems": true,
+            "items": {
+              "$ref": "#/components/schemas/Identificador"
+            }
+          }
+        }
+      },
+      "ResultadoConsulta": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "encontrados",
+          "desconocidos"
+        ],
+        "properties": {
+          "encontrados": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Activo"
+            }
+          },
+          "desconocidos": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Identificador"
+            }
+          }
+        }
+      },
+      "Cambio": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "estado",
+          "actualizadoEn"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Identificador"
+          },
+          "estado": {
+            "$ref": "#/components/schemas/EstadoActivo"
+          },
+          "actualizadoEn": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Instante en que se observó el cambio (con zona horaria)."
+          },
+          "origen": {
+            "type": "string",
+            "enum": [
+              "telemetria",
+              "mantenimiento",
+              "manual"
+            ],
+            "default": "telemetria"
+          }
+        }
+      },
+      "LoteCambios": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "cambios"
+        ],
+        "properties": {
+          "cambios": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 100,
+            "items": {
+              "$ref": "#/components/schemas/Cambio"
+            }
+          }
+        }
+      },
+      "ResultadoCambio": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "resultado"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Identificador"
+          },
+          "resultado": {
+            "type": "string",
+            "enum": [
+              "actualizado",
+              "sin_cambios",
+              "anterior",
+              "conflicto",
+              "transicion_invalida",
+              "desconocido"
+            ]
+          },
+          "estadoVigente": {
+            "$ref": "#/components/schemas/EstadoActivo"
+          },
+          "actualizadoEn": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Marca temporal vigente tras procesar el cambio. Se omite si el activo es desconocido."
+          }
+        }
+      },
+      "ResultadoLote": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "resultados",
+          "resumen",
+          "duracionMs",
+          "workers"
+        ],
+        "properties": {
+          "resultados": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 100,
+            "items": {
+              "$ref": "#/components/schemas/ResultadoCambio"
+            }
+          },
+          "resumen": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "actualizado",
+              "sin_cambios",
+              "anterior",
+              "conflicto",
+              "transicion_invalida",
+              "desconocido"
+            ],
+            "properties": {
+              "actualizado": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "sin_cambios": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "anterior": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "conflicto": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "transicion_invalida": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "desconocido": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          },
+          "duracionMs": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Tiempo de procesamiento del lote en el servidor (evidencia operativa)."
+          },
+          "workers": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Número de workers usados para procesar el lote."
+          }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "codigo",
+          "mensaje",
+          "requestId"
+        ],
+        "properties": {
+          "codigo": {
+            "type": "string",
+            "description": "Código estable para que el consumidor decida qué hacer.",
+            "enum": [
+              "SOLICITUD_INVALIDA",
+              "IDS_REPETIDOS",
+              "LOTE_FUERA_DE_RANGO",
+              "NO_ENCONTRADO",
+              "DUPLICADO",
+              "PLANTA_DESCONOCIDA",
+              "SOBRECARGA",
+              "NO_DISPONIBLE",
+              "ERROR_INTERNO"
+            ]
+          },
+          "mensaje": {
+            "type": "string"
+          },
+          "requestId": {
+            "type": "string"
+          },
+          "detalles": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "campo",
+                "problema"
+              ],
+              "properties": {
+                "campo": {
+                  "type": "string"
+                },
+                "problema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "Salud": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "estado",
+          "baseDatos"
+        ],
+        "properties": {
+          "estado": {
+            "type": "string",
+            "enum": [
+              "disponible",
+              "no_disponible"
+            ]
+          },
+          "baseDatos": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "error"
+            ]
+          },
+          "version": {
+            "type": "string"
+          },
+          "tiempoActivoSeg": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    }
+  }
+}
