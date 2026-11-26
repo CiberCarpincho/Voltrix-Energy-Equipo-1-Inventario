@@ -15,12 +15,13 @@ Requires=docker.service
 
 [Service]
 Type=oneshot
-WorkingDirectory="$project_dir"
+WorkingDirectory=$project_dir
 StateDirectory=voltrix-cd
 Environment=GIT_TERMINAL_PROMPT=0
 ExecStart=/usr/bin/python3 -u /usr/local/lib/voltrix-cd/desplegar.py
 EOF
 install -m 0644 "$source_dir/voltrix-cd.timer" /etc/systemd/system/
+systemd-analyze verify /etc/systemd/system/voltrix-cd.service /etc/systemd/system/voltrix-cd.timer
 systemctl daemon-reload
 systemctl enable --now voltrix-cd.timer
 systemctl start voltrix-cd.service
