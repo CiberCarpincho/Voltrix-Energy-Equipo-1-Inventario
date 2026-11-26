@@ -1,1 +1,7 @@
 deploy/compose/.env
+.env
+
+# Reportes del CI
+coverage.out
+reporte-pruebas.json
+.scannerwork/

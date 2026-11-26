@@ -1,3 +1,14 @@
+# Despliegue de Inventario en la EC2: API (Go) y PostgreSQL 16 en una red privada.
+#   api (8080; en el host, API_PUERTO_HOST del .env) · db (5432, solo red interna)
+#
+# Configuración:
+#   - Secretos y valores propios del entorno: archivo .env junto a este archivo (ver .env.example).
+#   - API_IMAGEN y API_TAG: las exporta el pipeline de CD en cada despliegue (imagen de GHCR).
+# En desarrollo y en el CI, compose.override.yaml se aplica automáticamente y construye la
+# imagen desde el código. El pipeline de CD solo copia este archivo a la EC2.
+#
+# El nombre del proyecto fija el nombre del volumen (voltrix-inventario_pgdata): no cambiarlo,
+# o la EC2 arrancaría con una base vacía.
 name: voltrix-inventario
 services:
   db:
@@ -9,6 +20,7 @@ services:
     command: ["postgres", "-c", "shared_buffers=32MB", "-c", "max_connections=10"]
     mem_limit: 256m
     restart: unless-stopped
+    # Sin "ports": solo la API la alcanza, por la red interna de Docker.
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -19,8 +31,7 @@ services:
     networks: [inventario]
 
   api:
-    build:
-      context: ../..
+    image: ${API_IMAGEN:-voltrix-inventario-api}:${API_TAG:-latest}
     environment:
       PGHOST: db
       PGPORT: "5432"
@@ -34,8 +45,15 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    # /health responde 200 solo si PostgreSQL contesta; "docker compose up --wait" espera este estado.
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 30s
     ports:
-      - "8080:8080"
+      - "${API_PUERTO_HOST:-8080}:8080"
     networks: [inventario]
 
 volumes:
