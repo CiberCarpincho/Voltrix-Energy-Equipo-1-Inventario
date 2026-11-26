@@ -23,3 +23,5 @@ Estructura de trabajo basada en las vistas lógica y de despliegue del DAS. Los 
 ## Avance 1 · 26 de noviembre
 
 El esqueleto de carpetas prepara la implementación. Para sustentar el avance se requiere mostrar la API con datos de ejemplo conforme al contrato en EC2 y el clúster Floci EKS creado.
+
+La [guía de despliegue de HU-04](infra/ec2/HU-04.md) reúne los pasos para ejecutar Inventario con PostgreSQL, crear la instancia con CloudFormation y comprobar el acceso desde fuera de EC2.
