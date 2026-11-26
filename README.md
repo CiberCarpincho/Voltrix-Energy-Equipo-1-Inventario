@@ -39,3 +39,29 @@ Los GET de plantas y activos consultan PostgreSQL. Los POST de este avance acept
 Ejecuta `go test ./...` para verificar el contrato y las respuestas de demostración. Para incluir la prueba de integración, configura `INVENTARIO_TEST_DSN` con una conexión PostgreSQL cuyo usuario pueda crear esquemas. La prueba usa su propio esquema para comprobar la semilla, las consultas y la persistencia tras reconectar e iniciar de nuevo.
 
 La [guía de despliegue de HU-04](infra/ec2/HU-04.md) reúne los pasos para ejecutar Inventario con PostgreSQL, crear la instancia con CloudFormation y comprobar el acceso desde fuera de EC2.
+
+### Despliegue continuo en EC2
+
+Cada minuto, un temporizador de systemd consulta `main` en GitHub. Cuando cambia el commit, construye la API, aplica Compose y exige que `/health` confirme PostgreSQL. Si falla, recupera el commit y la imagen anteriores. El volumen y el archivo de credenciales pertenecen al despliegue existente. Las modificaciones de esquema de base de datos deben admitir la versión anterior de la API.
+
+La plantilla instala el temporizador en instancias nuevas usando una revisión que incluya esta funcionalidad. Para activar la instancia ya desplegada, después de fusionar el cambio a `main`, ejecuta este bloque en la terminal de **Ubuntu EC2**. Usa una copia temporal del instalador para mantener el commit del servicio en ejecución hasta que comience la actualización.
+
+```bash
+cd ~/Voltrix-Energy-Equipo-1-Inventario
+git fetch origin main &&
+  cd_setup=$(mktemp -d) &&
+  git archive FETCH_HEAD infra/ec2/cd | tar -x -C "$cd_setup" &&
+  sudo bash "$cd_setup/infra/ec2/cd/instalar.sh" "$PWD"
+```
+
+Para comprobar el resultado:
+
+```bash
+systemctl is-active voltrix-cd.timer
+sudo journalctl -u voltrix-cd.service -n 40 --no-pager
+git rev-parse HEAD
+git ls-remote origin refs/heads/main
+curl -fsS http://localhost:8080/health
+```
+
+El temporizador debe estar activo, los dos SHA deben coincidir y la salud debe indicar `disponible` y `ok`. Para pausar los intentos ante una versión defectuosa, usa `sudo systemctl disable --now voltrix-cd.timer`. Reactiva con `sudo systemctl enable --now voltrix-cd.timer`. Si una revisión cambia el propio instalador o el controlador de despliegue, vuelve a ejecutar el bloque de instalación para actualizar la copia administrada por systemd.

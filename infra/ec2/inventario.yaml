@@ -75,6 +75,7 @@ Resources:
           docker stats --no-stream
           free -m
           swapon --show
+          bash /opt/voltrix/infra/ec2/cd/instalar.sh /opt/voltrix
 Outputs:
   ApiUrl:
     Value: !Sub 'http://${InventoryHost.PublicIp}:8080'
