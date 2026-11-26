@@ -6,6 +6,11 @@ on:
 
 permissions: {}
 
+# Ramas individuales autorizadas para integrarse en develop.
+# Al incorporar un nuevo integrante, agrega su rama a esta lista.
+env:
+  RAMAS_INDIVIDUALES: "saragon jeas sarias scalvo srubio"
+
 jobs:
   validar-origen:
     name: Validar origen del PR
@@ -22,7 +27,24 @@ jobs:
             echo "::error::El PR debe proceder del repositorio del equipo."
             exit 1
           fi
-          case "$DESTINO/$ORIGEN" in
-            main/develop|develop/saragon) exit 0 ;;
-            *) echo "::error::La rama de origen no está autorizada para este destino."; exit 1 ;;
-          esac
+
+          if [[ "$DESTINO" == "main" ]]; then
+            if [[ "$ORIGEN" == "develop" ]]; then
+              exit 0
+            fi
+            echo "::error::Solo la rama develop puede integrarse en main."
+            exit 1
+          fi
+
+          if [[ "$DESTINO" == "develop" ]]; then
+            for rama in $RAMAS_INDIVIDUALES; do
+              if [[ "$ORIGEN" == "$rama" ]]; then
+                exit 0
+              fi
+            done
+            echo "::error::La rama '$ORIGEN' no está autorizada para integrarse en develop. Ramas permitidas: $RAMAS_INDIVIDUALES."
+            exit 1
+          fi
+
+          echo "::error::El destino del PR no está autorizado."
+          exit 1
