@@ -163,6 +163,8 @@ func TestListarActivosPaginacionPorDefecto(t *testing.T) {
 
 func TestCatalogoRechazaConsultasInvalidas(t *testing.T) {
 	for ruta, mensaje := range map[string]string{
+		"/plantas?tipo=":                 "tipo no puede estar vacío",
+		"/plantas?clienteId=":            "clienteId no puede estar vacío",
 		"/plantas?tipo=nuclear":          "Filtro de plantas inválido",
 		"/plantas?clienteId=a%20b":       "Filtro de plantas inválido",
 		"/activos?estado=roto":           "Filtro de activos inválido",
