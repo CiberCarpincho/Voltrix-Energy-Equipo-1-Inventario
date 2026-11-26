@@ -59,7 +59,7 @@ app/main.go         → único lugar que conoce todas las capas y las conecta
 | Control de admisión: 429 con `Retry-After` | `controlarAdmision` en `app/api/middleware.go`; `/health` y `/openapi.yaml` quedan fuera |
 | Trazabilidad: duración, ruta, código HTTP, request id y equipo consumidor | `registrarPeticion` (logs JSON) y `X-Request-Id` (UUID, se reutiliza si el consumidor lo envía) |
 | Errores del contrato (`codigo`, `mensaje`, `requestId`, `detalles`) | `ResponderError`: categorías de `app/business/domain` → 400, 404, 409, 503; lo demás → 500 `ERROR_INTERNO` sin exponer detalles |
-| Límite de tamaño del JSON | `LeerJSON` (1 MiB, rechaza campos desconocidos) |
+| Límite de tamaño del JSON | `TamanoMaximoCuerpo` = 64 KiB (criterio 7 de HU-INV-03) en `LeerJSON` y en los POST de demostración; `LeerJSON` además rechaza campos desconocidos |
 | Configuración externa | `app/core` (ver [sección 5](#5-configuración)) |
 | Consistencia del esquema | Migraciones embebidas, en orden y con bloqueo para varias réplicas |
 | Reinicio automático y límites de memoria | `docker-compose.yaml` (128 MiB API, 256 MiB PostgreSQL) |

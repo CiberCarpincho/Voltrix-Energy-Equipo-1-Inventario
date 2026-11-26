@@ -9,8 +9,8 @@ import (
 	"voltrix/inventario/app/business/domain"
 )
 
-// TamanoMaximoCuerpo limita el JSON de una petición (1 MiB).
-const TamanoMaximoCuerpo = 1 << 20
+// TamanoMaximoCuerpo limita el cuerpo de una petición (64 KiB, criterio 7 de HU-INV-03).
+const TamanoMaximoCuerpo = 64 << 10
 
 var errRutaDesconocida = domain.NoEncontrado("La ruta no existe")
 

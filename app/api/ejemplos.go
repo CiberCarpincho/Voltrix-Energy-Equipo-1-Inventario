@@ -66,7 +66,7 @@ func registrarEjemplos(mux *http.ServeMux, contrato []byte) error {
 		}
 		mux.HandleFunc("POST "+caso.ruta, func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("X-Inventario-Demo", "true")
-			cuerpo, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 64<<10))
+			cuerpo, err := io.ReadAll(http.MaxBytesReader(w, r.Body, TamanoMaximoCuerpo))
 			var datos any
 			if err != nil || json.Unmarshal(cuerpo, &datos) != nil || !reflect.DeepEqual(datos, datosEsperados) {
 				ResponderError(w, r, domain.Invalido("En el primer avance envíe el cuerpo de ejemplo publicado en el OpenAPI"))
