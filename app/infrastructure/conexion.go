@@ -1,10 +1,10 @@
-// Package infraestructure es la capa de acceso a datos: la única que conoce SQL y el driver de
+// Package infrastructure es la capa de acceso a datos: la única que conoce SQL y el driver de
 // PostgreSQL. Implementa las interfaces (puertos) que declara app/business/services y traduce los
 // errores del driver a las categorías de app/business/domain.
 //
 // Cada historia de usuario agrega aquí su repositorio (por ejemplo activos.go) con consultas
 // parametrizadas, y su migración en migraciones/.
-package infraestructure
+package infrastructure
 
 import (
 	"database/sql"

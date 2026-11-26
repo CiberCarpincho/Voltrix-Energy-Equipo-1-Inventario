@@ -1,7 +1,7 @@
 // Package api es la capa de presentación (DAS 1.5): manejadores net/http que decodifican
 // el JSON, aplican los límites de tamaño y de admisión, llaman a la capa de lógica de negocio
 // (app/business/services) y traducen sus resultados y errores a respuestas del contrato
-// docs/openapi.yaml. No conoce SQL ni app/infraestructure.
+// docs/openapi.yaml. No conoce SQL ni app/infrastructure.
 package api
 
 import (

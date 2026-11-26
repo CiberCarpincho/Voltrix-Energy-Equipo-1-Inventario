@@ -6,7 +6,7 @@ linters:
   default: standard
   enable:
     # Reglas de dependencia entre capas del DAS (sección 2): cada capa solo habla con la de
-    # abajo y solo app/infraestructure conoce SQL. app/main.go es el único que ve todas.
+    # abajo y solo app/infrastructure conoce SQL. app/main.go es el único que ve todas.
     - depguard
   settings:
     errcheck:
@@ -21,38 +21,38 @@ linters:
         presentacion:
           files: ["**/app/api/**"]
           deny:
-            - pkg: voltrix/inventario/app/infraestructure
-              desc: "la presentación llama a la capa de negocio (app/business/services), no a infraestructure"
+            - pkg: voltrix/inventario/app/infrastructure
+              desc: "la presentación llama a la capa de negocio (app/business/services), no a infrastructure"
             - pkg: voltrix/inventario/app/business/workers
               desc: "el pool de workers lo usa la capa de negocio (app/business/services)"
             - pkg: database/sql
-              desc: "solo app/infraestructure conoce SQL"
+              desc: "solo app/infrastructure conoce SQL"
             - pkg: github.com/lib/pq
-              desc: "solo app/infraestructure conoce el driver de PostgreSQL"
+              desc: "solo app/infrastructure conoce el driver de PostgreSQL"
         negocio:
           files: ["**/app/business/services/**", "**/app/business/workers/**"]
           deny:
             - pkg: voltrix/inventario/app/api
               desc: "la capa de negocio no depende de la presentación"
-            - pkg: voltrix/inventario/app/infraestructure
-              desc: "la capa de negocio usa los puertos de app/business/services/puertos.go, no infraestructure"
+            - pkg: voltrix/inventario/app/infrastructure
+              desc: "la capa de negocio usa los puertos de app/business/services/puertos.go, no infrastructure"
             - pkg: net/http
               desc: "la capa de negocio no conoce HTTP"
             - pkg: database/sql
-              desc: "solo app/infraestructure conoce SQL"
+              desc: "solo app/infrastructure conoce SQL"
             - pkg: github.com/lib/pq
-              desc: "solo app/infraestructure conoce el driver de PostgreSQL"
+              desc: "solo app/infrastructure conoce el driver de PostgreSQL"
         acceso-datos:
-          files: ["**/app/infraestructure/**"]
+          files: ["**/app/infrastructure/**"]
           deny:
             - pkg: voltrix/inventario/app/api
-              desc: "infraestructure no depende de la presentación"
+              desc: "infrastructure no depende de la presentación"
             - pkg: voltrix/inventario/app/business/services
-              desc: "infraestructure no depende de los casos de uso"
+              desc: "infrastructure no depende de los casos de uso"
             - pkg: voltrix/inventario/app/business/workers
-              desc: "infraestructure no depende de los casos de uso"
+              desc: "infrastructure no depende de los casos de uso"
             - pkg: net/http
-              desc: "infraestructure no conoce HTTP"
+              desc: "infrastructure no conoce HTTP"
         dominio:
           files: ["**/app/business/domain/**"]
           deny:
@@ -62,7 +62,7 @@ linters:
               desc: "el dominio no depende de ninguna capa"
             - pkg: voltrix/inventario/app/business/workers
               desc: "el dominio no depende de ninguna capa"
-            - pkg: voltrix/inventario/app/infraestructure
+            - pkg: voltrix/inventario/app/infrastructure
               desc: "el dominio no depende de ninguna capa"
             - pkg: voltrix/inventario/app/core
               desc: "el dominio no depende de ninguna capa"
@@ -77,7 +77,7 @@ linters:
               desc: "core no depende de ninguna capa"
             - pkg: voltrix/inventario/app/business
               desc: "core no depende de ninguna capa"
-            - pkg: voltrix/inventario/app/infraestructure
+            - pkg: voltrix/inventario/app/infrastructure
               desc: "core no depende de ninguna capa"
   exclusions:
     presets:

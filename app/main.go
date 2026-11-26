@@ -16,7 +16,7 @@ import (
 	"voltrix/inventario/app/api"
 	"voltrix/inventario/app/business/services"
 	"voltrix/inventario/app/core"
-	"voltrix/inventario/app/infraestructure"
+	"voltrix/inventario/app/infrastructure"
 )
 
 // version se fija al compilar (-ldflags "-X main.version=<commit>"); la reporta /health.
@@ -43,14 +43,14 @@ func ejecutar() error {
 	defer detener()
 
 	// Capa de acceso a datos
-	db, err := infraestructure.Abrir(cfg.DBMaxConexiones)
+	db, err := infrastructure.Abrir(cfg.DBMaxConexiones)
 	if err != nil {
 		return err
 	}
 	defer db.Close()
 
 	ctxMigracion, cancelar := context.WithTimeout(ctx, 30*time.Second)
-	aplicadas, err := infraestructure.Migrar(ctxMigracion, db)
+	aplicadas, err := infrastructure.Migrar(ctxMigracion, db)
 	cancelar()
 	if err != nil {
 		return fmt.Errorf("migraciones: %w", err)
@@ -58,8 +58,8 @@ func ejecutar() error {
 	slog.Info("migraciones al día", "aplicadas", aplicadas)
 
 	// Capa de lógica de negocio: recibe los repositorios a través de sus puertos.
-	salud := services.NuevaSalud(infraestructure.Salud{DB: db})
-	catalogo := services.NuevoCatalogo(infraestructure.Catalogo{DB: db})
+	salud := services.NuevaSalud(infrastructure.Salud{DB: db})
+	catalogo := services.NuevoCatalogo(infrastructure.Catalogo{DB: db})
 
 	// Capa de presentación
 	contrato, err := os.ReadFile(rutaContrato)

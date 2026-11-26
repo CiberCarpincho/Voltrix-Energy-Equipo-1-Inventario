@@ -8,7 +8,7 @@ La arquitectura del DAS ya está montada y funcionando. Para el primer avance el
 
 ## 1. Arquitectura
 
-Tres capas (DAS, secciones 1.5 y 2). **Cada capa solo habla con la de abajo y solo `app/infraestructure` conoce SQL.**
+Tres capas (DAS, secciones 1.5 y 2). **Cada capa solo habla con la de abajo y solo `app/infrastructure` conoce SQL.**
 
 ```
               Equipos 2, 4, 5 y 6
@@ -19,7 +19,7 @@ Tres capas (DAS, secciones 1.5 y 2). **Cada capa solo habla con la de abajo y so
 │ Lógica de negocio  app/business/services   │  casos de uso y validaciones
 │                    app/business/workers    │  pool de workers (procesamiento paralelo)
 ├────────────────────────────────────────────┤
-│ Acceso a datos     app/infraestructure     │  consultas parametrizadas y migraciones
+│ Acceso a datos     app/infrastructure     │  consultas parametrizadas y migraciones
 └─────────────────────┬──────────────────────┘
                       ▼
                  PostgreSQL 16
@@ -29,9 +29,9 @@ app/core            → utilidades: configuración por variables de entorno
 app/main.go         → único lugar que conoce todas las capas y las conecta
 ```
 
-**Puertos.** La capa de negocio no importa `app/infraestructure`: declara lo que necesita como interfaces en [app/business/services/puertos.go](app/business/services/puertos.go) y `app/infraestructure` las implementa. `app/main.go` conecta una con otra. Así, en las pruebas el servicio recibe un doble en lugar de PostgreSQL.
+**Puertos.** La capa de negocio no importa `app/infrastructure`: declara lo que necesita como interfaces en [app/business/services/puertos.go](app/business/services/puertos.go) y `app/infrastructure` las implementa. `app/main.go` conecta una con otra. Así, en las pruebas el servicio recibe un doble en lugar de PostgreSQL.
 
-**Las reglas se verifican en el CI.** `depguard` (en [.golangci.yml](.golangci.yml)) hace fallar el linter si, por ejemplo, un manejador de `app/api` importa `app/infraestructure` o `database/sql`, o si un servicio importa `net/http`.
+**Las reglas se verifican en el CI.** `depguard` (en [.golangci.yml](.golangci.yml)) hace fallar el linter si, por ejemplo, un manejador de `app/api` importa `app/infrastructure` o `database/sql`, o si un servicio importa `net/http`.
 
 ## 2. Estructura
 
@@ -39,10 +39,10 @@ app/main.go         → único lugar que conoce todas las capas y las conecta
 |---|---|---|
 | `app/main.go` | Arranque | Lee la configuración, conecta las capas, aplica migraciones, levanta el servidor y lo apaga en orden ante SIGTERM. |
 | `app/api/` | Presentación | `servidor.go` (rutas y dependencias), `middleware.go`, `respuestas.go` (JSON y errores), `salud.go`, `catalogo.go` (GET del catálogo y sus DTO) y `ejemplos.go` (POST de demostración). |
-| `app/business/services/` | Negocio | `puertos.go` (interfaces hacia `app/infraestructure`) y los casos de uso (`salud.go`, `catalogo.go`). |
+| `app/business/services/` | Negocio | `puertos.go` (interfaces hacia `app/infrastructure`) y los casos de uso (`salud.go`, `catalogo.go`). |
 | `app/business/workers/` | Negocio | Pool de workers del DAS. Vacío: lo implementa la HU de actualización por lotes (ver `doc.go`). |
 | `app/business/domain/` | Compartida | Errores de negocio y modelos del catálogo (`catalogo.go`: planta, activo, tipos, estados y paginación). |
-| `app/infraestructure/` | Acceso a datos | Pool de conexiones, migraciones (`migraciones/*.sql`: esquema y catálogo de ejemplo), traducción de errores del driver y repositorios (`catalogo.go`). |
+| `app/infrastructure/` | Acceso a datos | Pool de conexiones, migraciones (`migraciones/*.sql`: esquema y catálogo de ejemplo), traducción de errores del driver y repositorios (`catalogo.go`). |
 | `app/core/` | Utilidades | Configuración por variables de entorno con valores por defecto y validación. |
 | `docs/` | Contrato | OpenAPI 1.0.0, servido en `GET /openapi.yaml`. |
 | `docker-compose.yaml` | Despliegue | API y PostgreSQL; es el que se copia a la EC2. |
@@ -54,7 +54,7 @@ app/main.go         → único lugar que conoce todas las capas y las conecta
 
 | Táctica del DAS | Dónde |
 |---|---|
-| Patrón de capas | `app/api` → `app/business/services` → `app/infraestructure`, verificado por `depguard` |
+| Patrón de capas | `app/api` → `app/business/services` → `app/infrastructure`, verificado por `depguard` |
 | Health check: 200 o 503 si la base no responde en 1 s | `GET /health` atraviesa las tres capas (`salud.go` en cada una) |
 | Control de admisión: 429 con `Retry-After` | `controlarAdmision` en `app/api/middleware.go`; `/health` y `/openapi.yaml` quedan fuera |
 | Trazabilidad: duración, ruta, código HTTP, request id y equipo consumidor | `registrarPeticion` (logs JSON) y `X-Request-Id` (UUID, se reutiliza si el consumidor lo envía) |
@@ -80,7 +80,7 @@ app/main.go         → único lugar que conoce todas las capas y las conecta
 
 Ejemplo: `POST /activos` (registrar un activo), que hoy responde el ejemplo del contrato. Se escribe de abajo hacia arriba y cada paso tiene su prueba. El catálogo (`catalogo.go` en cada capa) sirve de modelo completo.
 
-1. **Esquema** (si hace falta): una migración nueva `app/infraestructure/migraciones/003_....sql`. Al arrancar se aplica sola. Numerar siempre con tres dígitos y nunca editar una migración ya fusionada (`001` y `002` crean y llenan el catálogo): los cambios van en una nueva.
+1. **Esquema** (si hace falta): una migración nueva `app/infrastructure/migraciones/003_....sql`. Al arrancar se aplica sola. Numerar siempre con tres dígitos y nunca editar una migración ya fusionada (`001` y `002` crean y llenan el catálogo): los cambios van en una nueva.
 2. **Dominio**: en `app/business/domain`, los tipos y reglas que no dependen de nada externo (por ejemplo, `ActivoNuevo` y su validación). Sin etiquetas JSON ni SQL.
 3. **Puerto**: en `app/business/services/puertos.go`, la interfaz que necesita el caso de uso:
    ```go
@@ -88,14 +88,14 @@ Ejemplo: `POST /activos` (registrar un activo), que hoy responde el ejemplo del 
        Registrar(ctx context.Context, activo domain.Activo) (domain.Activo, error)
    }
    ```
-4. **Repositorio**: `app/infraestructure/activos.go` implementa la interfaz con consultas parametrizadas (`$1`, nunca concatenando texto) y pasa cada error por `traducirError`. Así `sql.ErrNoRows` llega arriba como `domain.ErrNoEncontrado` y una clave repetida como `domain.ErrDuplicado`.
+4. **Repositorio**: `app/infrastructure/activos.go` implementa la interfaz con consultas parametrizadas (`$1`, nunca concatenando texto) y pasa cada error por `traducirError`. Así `sql.ErrNoRows` llega arriba como `domain.ErrNoEncontrado` y una clave repetida como `domain.ErrDuplicado`.
 5. **Caso de uso**: `app/business/services/activos.go` recibe el puerto en su constructor (`NuevoActivos(repo RepositorioActivos)`), valida y devuelve errores de dominio: `domain.Invalido(...)`, `domain.NoEncontrado(...)` o `&domain.Error{Categoria: ..., Codigo: "PLANTA_DESCONOCIDA", ...}` si el contrato define un código propio.
 6. **Manejador**: `app/api/activos.go` lee la petición (`r.PathValue`, `LeerJSON`), llama al servicio y responde con `EscribirJSON` o `ResponderError`. Los DTO con los nombres JSON del contrato (camelCase) viven aquí y se convierten desde el dominio. Se agrega el caso de uso a `Dependencias`, la ruta en `registrarRutas` (`servidor.go`) y se quita ese POST de la lista de `ejemplos.go`.
-7. **Conexión**: en `app/main.go`, `services.NuevoActivos(infraestructure.Activos{DB: db})` y se pasa en `api.Dependencias`.
+7. **Conexión**: en `app/main.go`, `services.NuevoActivos(infrastructure.Activos{DB: db})` y se pasa en `api.Dependencias`.
 8. **Pruebas**:
    - servicio: con un doble del puerto (ver `app/business/services/catalogo_test.go`);
    - manejador: con `httptest` y el servicio armado sobre un doble (ver `app/api/catalogo_test.go`);
-   - repositorio: de integración contra PostgreSQL con `INVENTARIO_TEST_DSN` (ver `app/infraestructure/catalogo_integration_test.go`, que usa un esquema propio y lo borra al terminar).
+   - repositorio: de integración contra PostgreSQL con `INVENTARIO_TEST_DSN` (ver `app/infrastructure/catalogo_integration_test.go`, que usa un esquema propio y lo borra al terminar).
 
 Para la HU de actualización por lotes, el pool va en `app/business/workers` según el diseño de `doc.go` (reparto por `hash(id) mod N` y `core.Config.Workers`). El servicio lo usa y le pasa la función que aplica un cambio con el repositorio (`SELECT ... FOR UPDATE`).
 

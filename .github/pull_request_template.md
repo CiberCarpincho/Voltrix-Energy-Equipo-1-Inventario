@@ -28,8 +28,8 @@ HU-XX · (título) <!-- o "No aplica" -->
 
 ## Revisión de arquitectura (DAS)
 
-- [ ] Cada capa usa solo la de abajo: `app/api` → `app/business/services` → `app/infraestructure`; todas pueden usar `app/business/domain`.
-- [ ] El servicio recibe interfaces de `app/business/services/puertos.go`, no `app/infraestructure` directamente.
+- [ ] Cada capa usa solo la de abajo: `app/api` → `app/business/services` → `app/infrastructure`; todas pueden usar `app/business/domain`.
+- [ ] El servicio recibe interfaces de `app/business/services/puertos.go`, no `app/infrastructure` directamente.
 - [ ] Las consultas son parametrizadas y los errores pasan por `traducirError`.
 - [ ] Las respuestas siguen `docs/openapi.yaml` (nombres JSON, códigos HTTP y códigos de error).
 - [ ] Si cambié el esquema, agregué una migración nueva (no edité una existente) y admite la versión anterior de la API.

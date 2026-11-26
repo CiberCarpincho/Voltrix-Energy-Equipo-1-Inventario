@@ -12,5 +12,5 @@
 //     (go test -bench) compara ambas sobre el mismo lote.
 //
 // Este paquete no conoce HTTP ni SQL: recibe la función que aplica un cambio (provista por
-// app/business/services, que a su vez usa app/infraestructure).
+// app/business/services, que a su vez usa app/infrastructure).
 package workers
