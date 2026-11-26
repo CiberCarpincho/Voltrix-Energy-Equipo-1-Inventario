@@ -8,86 +8,84 @@ Este repositorio es el **arquetipo** del servicio: la arquitectura del DAS ya es
 
 ## 1. Arquitectura
 
-Tres capas (DAS, secciones 1.5 y 2). **Cada capa solo habla con la de abajo y solo el repositorio conoce SQL.**
+Tres capas (DAS, secciones 1.5 y 2). **Cada capa solo habla con la de abajo y solo `app/infraestructure` conoce SQL.**
 
 ```
-            Equipos 2, 4, 5 y 6
-                    │ HTTP :8080
-┌───────────────────▼────────────────────┐
-│ Presentación     internal/httpapi      │  JSON, límites de tamaño y admisión, errores → HTTP
-├────────────────────────────────────────┤
-│ Lógica de negocio internal/servicio    │  casos de uso y validaciones
-│                   internal/lotes       │  pool de workers (procesamiento paralelo)
-├────────────────────────────────────────┤
-│ Acceso a datos   internal/repositorio/ │  consultas parametrizadas y migraciones
-│                  postgres              │
-└───────────────────┬────────────────────┘
-                    ▼
-               PostgreSQL 16
+              Equipos 2, 4, 5 y 6
+                      │ HTTP :8080
+┌─────────────────────▼──────────────────────┐
+│ Presentación       app/api                 │  JSON, límites de tamaño y admisión, errores → HTTP
+├────────────────────────────────────────────┤
+│ Lógica de negocio  app/business/services   │  casos de uso y validaciones
+│                    app/business/workers    │  pool de workers (procesamiento paralelo)
+├────────────────────────────────────────────┤
+│ Acceso a datos     app/infraestructure     │  consultas parametrizadas y migraciones
+└─────────────────────┬──────────────────────┘
+                      ▼
+                 PostgreSQL 16
 
-internal/dominio  → modelos y errores de negocio, los usan todas las capas
-internal/config   → configuración por variables de entorno
-cmd/inventario    → único lugar que conoce todas las capas y las conecta
+app/business/domain → modelos y errores de negocio, los usan todas las capas
+app/core            → utilidades: configuración por variables de entorno
+app/main.go         → único lugar que conoce todas las capas y las conecta
 ```
 
-**Puertos.** La capa de negocio no importa el repositorio: declara lo que necesita como interfaces en [internal/servicio/puertos.go](internal/servicio/puertos.go) y `internal/repositorio/postgres` las implementa. `cmd/inventario/main.go` conecta una con otra. Así, en las pruebas el servicio recibe un doble en lugar de PostgreSQL.
+**Puertos.** La capa de negocio no importa `app/infraestructure`: declara lo que necesita como interfaces en [app/business/services/puertos.go](app/business/services/puertos.go) y `app/infraestructure` las implementa. `app/main.go` conecta una con otra. Así, en las pruebas el servicio recibe un doble en lugar de PostgreSQL.
 
-**Las reglas se verifican en el CI.** `depguard` (en [.golangci.yml](.golangci.yml)) hace fallar el linter si, por ejemplo, un manejador HTTP importa el repositorio o `database/sql`, o si el servicio importa `net/http`.
+**Las reglas se verifican en el CI.** `depguard` (en [.golangci.yml](.golangci.yml)) hace fallar el linter si, por ejemplo, un manejador de `app/api` importa `app/infraestructure` o `database/sql`, o si un servicio importa `net/http`.
 
 ## 2. Estructura
 
 | Carpeta | Capa | Contenido |
 |---|---|---|
-| `cmd/inventario/` | Arranque | Lee la configuración, conecta las capas, aplica migraciones, levanta el servidor y lo apaga en orden ante SIGTERM. |
-| `internal/httpapi/` | Presentación | `servidor.go` (rutas y dependencias), `middleware.go`, `respuestas.go` (JSON y errores), `salud.go`. |
-| `internal/servicio/` | Negocio | `puertos.go` (interfaces hacia el repositorio) y los casos de uso. |
-| `internal/lotes/` | Negocio | Pool de workers del DAS. Vacío: lo implementa la HU de actualización por lotes (ver `doc.go`). |
-| `internal/repositorio/postgres/` | Acceso a datos | Pool de conexiones, migraciones (`migraciones/*.sql`), traducción de errores del driver y repositorios. |
-| `internal/dominio/` | Compartida | Errores de negocio. Aquí van los modelos (planta, activo, estados). |
-| `internal/config/` | Compartida | Variables de entorno con valores por defecto y validación. |
+| `app/main.go` | Arranque | Lee la configuración, conecta las capas, aplica migraciones, levanta el servidor y lo apaga en orden ante SIGTERM. |
+| `app/api/` | Presentación | `servidor.go` (rutas y dependencias), `middleware.go`, `respuestas.go` (JSON y errores), `salud.go`. |
+| `app/business/services/` | Negocio | `puertos.go` (interfaces hacia `app/infraestructure`) y los casos de uso. |
+| `app/business/workers/` | Negocio | Pool de workers del DAS. Vacío: lo implementa la HU de actualización por lotes (ver `doc.go`). |
+| `app/business/domain/` | Compartida | Errores de negocio. Aquí van los modelos (planta, activo, estados). |
+| `app/infraestructure/` | Acceso a datos | Pool de conexiones, migraciones (`migraciones/*.sql`), traducción de errores del driver y repositorios. |
+| `app/core/` | Utilidades | Configuración por variables de entorno con valores por defecto y validación. |
 | `api/` | Contrato | OpenAPI 1.0.0, servido en `GET /openapi.yaml`. |
-| `deploy/compose/` | Despliegue | `compose.yaml` (EC2) y `compose.override.yaml` (local, construye la imagen). |
-| `deploy/kubernetes/` | Despliegue | Manifiestos para Floci EKS (Avance 2). Vacío. |
-| `benchmarks/` | Medición | Benchmark secuencial vs. paralelo del DAS. Vacío. |
+| `docker-compose.yaml` | Despliegue | API y PostgreSQL; es el que se copia a la EC2. |
+| `docker-compose.override.yaml` | Desarrollo | Construye la imagen desde el código y publica PostgreSQL en localhost. |
 | `.github/workflows/` | CI/CD | CI (linter y Semgrep) y CD (GHCR y EC2). |
 
 ## 3. Qué ya está listo
 
 | Táctica del DAS | Dónde |
 |---|---|
-| Patrón de capas | `internal/httpapi` → `internal/servicio` → `internal/repositorio/postgres`, verificado por `depguard` |
+| Patrón de capas | `app/api` → `app/business/services` → `app/infraestructure`, verificado por `depguard` |
 | Health check: 200 o 503 si la base no responde en 1 s | `GET /health` atraviesa las tres capas (`salud.go` en cada una) |
-| Control de admisión: 429 con `Retry-After` | `controlarAdmision` en `internal/httpapi/middleware.go`; `/health` y `/openapi.yaml` quedan fuera |
+| Control de admisión: 429 con `Retry-After` | `controlarAdmision` en `app/api/middleware.go`; `/health` y `/openapi.yaml` quedan fuera |
 | Trazabilidad: duración, ruta, código HTTP, request id y equipo consumidor | `registrarPeticion` (logs JSON) y `X-Request-Id` (UUID, se reutiliza si el consumidor lo envía) |
-| Errores del contrato (`codigo`, `mensaje`, `requestId`, `detalles`) | `ResponderError`: categorías de `internal/dominio` → 400, 404, 409, 503; lo demás → 500 `ERROR_INTERNO` sin exponer detalles |
+| Errores del contrato (`codigo`, `mensaje`, `requestId`, `detalles`) | `ResponderError`: categorías de `app/business/domain` → 400, 404, 409, 503; lo demás → 500 `ERROR_INTERNO` sin exponer detalles |
 | Límite de tamaño del JSON | `LeerJSON` (1 MiB, rechaza campos desconocidos) |
-| Configuración externa | `internal/config` (ver [sección 5](#5-configuración)) |
+| Configuración externa | `app/core` (ver [sección 5](#5-configuración)) |
 | Consistencia del esquema | Migraciones embebidas, en orden y con bloqueo para varias réplicas |
-| Reinicio automático y límites de memoria | `deploy/compose/compose.yaml` (128 MiB API, 256 MiB PostgreSQL) |
-| Apagado ordenado | `cmd/inventario/main.go` (espera las peticiones en curso, máximo 10 s) |
+| Reinicio automático y límites de memoria | `docker-compose.yaml` (128 MiB API, 256 MiB PostgreSQL) |
+| Apagado ordenado | `app/main.go` (espera las peticiones en curso, máximo 10 s) |
 
 ## 4. Cómo implementar una historia de usuario
 
 Ejemplo: `GET /activos/{id}`. Se escribe de abajo hacia arriba y cada paso tiene su prueba.
 
-1. **Esquema**: `internal/repositorio/postgres/migraciones/001_activos.sql` con el `CREATE TABLE`. Al arrancar se aplica sola. Numerar siempre con tres dígitos y nunca editar una migración ya fusionada: los cambios van en una nueva (`002_...`).
-2. **Dominio**: `internal/dominio/activo.go` con el tipo `Activo`, sus estados válidos y las reglas que no dependen de nada externo. Sin etiquetas JSON ni SQL.
-3. **Puerto**: en `internal/servicio/puertos.go`, la interfaz que necesita el caso de uso:
+1. **Esquema**: `app/infraestructure/migraciones/001_activos.sql` con el `CREATE TABLE`. Al arrancar se aplica sola. Numerar siempre con tres dígitos y nunca editar una migración ya fusionada: los cambios van en una nueva (`002_...`).
+2. **Dominio**: `app/business/domain/activo.go` con el tipo `Activo`, sus estados válidos y las reglas que no dependen de nada externo. Sin etiquetas JSON ni SQL.
+3. **Puerto**: en `app/business/services/puertos.go`, la interfaz que necesita el caso de uso:
    ```go
    type RepositorioActivos interface {
-       Buscar(ctx context.Context, id string) (dominio.Activo, error)
+       Buscar(ctx context.Context, id string) (domain.Activo, error)
    }
    ```
-4. **Repositorio**: `internal/repositorio/postgres/activos.go` implementa la interfaz con consultas parametrizadas (`$1`, nunca concatenando texto) y pasa cada error por `traducirError`. Así `sql.ErrNoRows` llega arriba como `dominio.ErrNoEncontrado` y una clave repetida como `dominio.ErrDuplicado`.
-5. **Caso de uso**: `internal/servicio/activos.go` recibe el puerto en su constructor (`NuevoActivos(repo RepositorioActivos)`), valida y devuelve errores de dominio: `dominio.Invalido(...)`, `dominio.NoEncontrado(...)` o `&dominio.Error{Categoria: ..., Codigo: "PLANTA_DESCONOCIDA", ...}` si el contrato define un código propio.
-6. **Manejador**: `internal/httpapi/activos.go` lee la petición (`r.PathValue`, `LeerJSON`), llama al servicio y responde con `EscribirJSON` o `ResponderError`. Los DTO con los nombres JSON del contrato (camelCase) viven aquí y se convierten desde el dominio. Se agrega el caso de uso a `Dependencias` y la ruta en `registrarRutas` (`servidor.go`).
-7. **Conexión**: en `cmd/inventario/main.go`, `servicio.NuevoActivos(postgres.Activos{DB: db})` y se pasa en `httpapi.Dependencias`.
+4. **Repositorio**: `app/infraestructure/activos.go` implementa la interfaz con consultas parametrizadas (`$1`, nunca concatenando texto) y pasa cada error por `traducirError`. Así `sql.ErrNoRows` llega arriba como `domain.ErrNoEncontrado` y una clave repetida como `domain.ErrDuplicado`.
+5. **Caso de uso**: `app/business/services/activos.go` recibe el puerto en su constructor (`NuevoActivos(repo RepositorioActivos)`), valida y devuelve errores de dominio: `domain.Invalido(...)`, `domain.NoEncontrado(...)` o `&domain.Error{Categoria: ..., Codigo: "PLANTA_DESCONOCIDA", ...}` si el contrato define un código propio.
+6. **Manejador**: `app/api/activos.go` lee la petición (`r.PathValue`, `LeerJSON`), llama al servicio y responde con `EscribirJSON` o `ResponderError`. Los DTO con los nombres JSON del contrato (camelCase) viven aquí y se convierten desde el dominio. Se agrega el caso de uso a `Dependencias` y la ruta en `registrarRutas` (`servidor.go`).
+7. **Conexión**: en `app/main.go`, `services.NuevoActivos(infraestructure.Activos{DB: db})` y se pasa en `api.Dependencias`.
 8. **Pruebas**:
-   - servicio: con un doble del puerto (ver `internal/servicio/salud_test.go`);
-   - manejador: con `httptest` y el servicio armado sobre un doble (ver `internal/httpapi/servidor_test.go`);
-   - repositorio: de integración contra PostgreSQL con `INVENTARIO_TEST_DSN` (ver `migraciones_integration_test.go`, que usa un esquema propio y lo borra al terminar).
+   - servicio: con un doble del puerto (ver `app/business/services/salud_test.go`);
+   - manejador: con `httptest` y el servicio armado sobre un doble (ver `app/api/servidor_test.go`);
+   - repositorio: de integración contra PostgreSQL con `INVENTARIO_TEST_DSN` (ver `app/infraestructure/migraciones_integration_test.go`, que usa un esquema propio y lo borra al terminar).
 
-Para la HU de actualización por lotes, el pool de workers va en `internal/lotes` según el diseño de `doc.go` (reparto por `hash(id) mod N` y `config.Workers`). El servicio lo usa y le pasa la función que aplica un cambio con el repositorio (`SELECT ... FOR UPDATE`).
+Para la HU de actualización por lotes, el pool va en `app/business/workers` según el diseño de `doc.go` (reparto por `hash(id) mod N` y `core.Config.Workers`). El servicio lo usa y le pasa la función que aplica un cambio con el repositorio (`SELECT ... FOR UPDATE`).
 
 ## 5. Configuración
 
@@ -104,23 +102,23 @@ Si un valor no es válido, el servicio no arranca y el log indica qué variable 
 
 ## 6. Desarrollo local
 
-Requisitos: Go 1.26 o superior y Docker con el plugin Compose.
+Requisitos: Go 1.26 o superior y Docker con el plugin Compose. Desde la raíz del repositorio:
 
 ```bash
-cd deploy/compose
-cp .env.example .env               # poner una POSTGRES_PASSWORD cualquiera
-docker compose up -d --build --wait   # compose.yaml + compose.override.yaml
+cp .env.example .env                 # poner una POSTGRES_PASSWORD cualquiera
+docker compose up -d --build --wait  # docker-compose.yaml + docker-compose.override.yaml
 curl http://localhost:8080/health
 curl http://localhost:8080/openapi.yaml
 ```
 
-Pruebas y linter, desde la raíz:
+Pruebas y linter:
 
 ```bash
 go test ./...                     # unitarias (sin base de datos)
 # Con la base del Compose anterior levantada, también las de integración:
 INVENTARIO_TEST_DSN="postgres://inventario:<POSTGRES_PASSWORD>@127.0.0.1:5433/inventario?sslmode=disable" go test ./...
 golangci-lint run                 # el mismo linter del CI, con las reglas de capas
+go run ./app                      # la API fuera de Docker (requiere las variables PG*)
 ```
 
 Con la base detenida (`docker compose stop db`), `/health` responde 503; al iniciarla (`docker compose start db`) vuelve a responder 200 sin reiniciar la API.
@@ -136,14 +134,14 @@ Cada integrante trabaja en su rama, abre un PR hacia `develop` (lo revisa el CI)
 1. Linter: `golangci-lint` con la configuración de `.golangci.yml` (errcheck, govet, staticcheck, ineffassign, unused, formato `gofmt` y reglas de capas con `depguard`).
 2. Seguridad: Semgrep con las reglas OWASP Top 10, Go, secretos, Dockerfile, Compose y GitHub Actions.
 
-**Despliegue continuo** (`.github/workflows/cd.yml`), en cada push a `main` (al fusionar `develop`) o a mano desde *Actions → CD → Run workflow*: se publica la imagen en GHCR (`ghcr.io/infraestructuras-voltrix/voltrix-inventario-api:<commit>` y `:latest`), se copia `deploy/compose/compose.yaml` a la EC2 por SSH, se reinician los contenedores y se verifica `/health`, que reporta el commit desplegado en `version`. Si la versión nueva no responde, el pipeline vuelve a la imagen que estaba corriendo y el job falla. Los cambios de esquema deben admitir la versión anterior de la API.
+**Despliegue continuo** (`.github/workflows/cd.yml`), en cada push a `main` (al fusionar `develop`) o a mano desde *Actions → CD → Run workflow*: se publica la imagen en GHCR (`ghcr.io/infraestructuras-voltrix/voltrix-inventario-api:<commit>` y `:latest`), se copia `docker-compose.yaml` a la EC2 por SSH, se reinician los contenedores y se verifica `/health`, que reporta el commit desplegado en `version`. Si la versión nueva no responde, el pipeline vuelve a la imagen que estaba corriendo y el job falla. Los cambios de esquema deben admitir la versión anterior de la API.
 
 **Configuración única en GitHub** (la hace un administrador del repositorio):
 
 1. *Settings → Branches*: regla para `develop` con "Require a pull request before merging" y los checks obligatorios **Linter (golangci-lint)** y **Análisis de seguridad (Semgrep)**; regla para `main` con "Require a pull request before merging" (solo se fusiona `develop`).
 2. *Settings → Secrets and variables → Actions*: `EC2_HOST`, `EC2_USUARIO` (`ubuntu`) y `EC2_LLAVE_SSH`; opcionalmente la variable `EC2_DIRECTORIO` (por defecto `voltrix-inventario`, en el home del usuario).
 
-**EC2 (una sola vez)**: Docker con el plugin Compose, el usuario SSH en el grupo `docker`, y la carpeta del despliegue con su `.env` (ver `deploy/compose/.env.example`). Grupo de seguridad: 22 (SSH del pipeline, protegido por la llave) y 8080 (API).
+**EC2 (una sola vez)**: Docker con el plugin Compose, el usuario SSH en el grupo `docker`, y la carpeta del despliegue con su `.env` (ver `.env.example`). Grupo de seguridad: 22 (SSH del pipeline, protegido por la llave) y 8080 (API).
 
 ```bash
 # En la EC2, para comprobar el estado

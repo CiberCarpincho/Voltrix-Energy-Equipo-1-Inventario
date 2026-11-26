@@ -1,2 +1,0 @@
-# Scripts que se ejecutan en Linux (EC2, contenedores y runners de GitHub Actions).
-*.sh text eol=lf

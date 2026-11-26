@@ -28,8 +28,8 @@ HU-XX · (título) <!-- o "No aplica" -->
 
 ## Revisión de arquitectura (DAS)
 
-- [ ] Cada capa usa solo la de abajo: `httpapi` → `servicio` → `repositorio/postgres`; todas pueden usar `dominio`.
-- [ ] El servicio recibe interfaces de `internal/servicio/puertos.go`, no el repositorio concreto.
+- [ ] Cada capa usa solo la de abajo: `app/api` → `app/business/services` → `app/infraestructure`; todas pueden usar `app/business/domain`.
+- [ ] El servicio recibe interfaces de `app/business/services/puertos.go`, no `app/infraestructure` directamente.
 - [ ] Las consultas son parametrizadas y los errores pasan por `traducirError`.
 - [ ] Las respuestas siguen `api/openapi.yaml` (nombres JSON, códigos HTTP y códigos de error).
 - [ ] Si cambié el esquema, agregué una migración nueva (no edité una existente) y admite la versión anterior de la API.
@@ -39,7 +39,7 @@ HU-XX · (título) <!-- o "No aplica" -->
 
 <!-- Al fusionar en main se despliega en la EC2 (cd.yml). -->
 
-- [ ] Si agregué variables de entorno, actualicé `internal/config`, `deploy/compose/compose.yaml`, `.env.example` y el README.
+- [ ] Si agregué variables de entorno, actualicé `app/core`, `docker-compose.yaml`, `.env.example` y el README.
 
 **Notas para el despliegue** (cambios en el `.env` de la EC2, pasos manuales):
 

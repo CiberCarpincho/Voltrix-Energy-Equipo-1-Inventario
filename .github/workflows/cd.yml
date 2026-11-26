@@ -3,7 +3,7 @@
 # Corre en cada push a main (al fusionar develop en main) o a mano desde la pestaña Actions.
 # El código ya pasó la integración continua en develop (ci.yml).
 #   1. imagen ....... construye la imagen Docker y la publica en GHCR (:<commit> y :latest).
-#   2. despliegue ... copia deploy/compose/compose.yaml a la EC2 por SSH, descarga la imagen,
+#   2. despliegue ... copia docker-compose.yaml a la EC2 por SSH, descarga la imagen,
 #                     reinicia los contenedores y verifica /health. Si la versión nueva no queda
 #                     saludable, vuelve a la imagen que estaba corriendo y el job falla.
 #
@@ -12,7 +12,7 @@
 #   EC2_USUARIO     usuario SSH de la EC2 (ubuntu en la AMI de Ubuntu)
 #   EC2_LLAVE_SSH   llave privada SSH (contenido completo del archivo)
 # Variable opcional: EC2_DIRECTORIO (carpeta del despliegue en la EC2; por defecto voltrix-inventario,
-# relativa al home del usuario). Ahí debe existir el .env (ver deploy/compose/.env.example).
+# relativa al home del usuario). Ahí debe existir el .env (ver .env.example).
 
 name: CD
 
@@ -97,10 +97,10 @@ jobs:
           chmod 600 ~/.ssh/ec2
           ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts
 
-      - name: Copiar compose.yaml
+      - name: Copiar docker-compose.yaml
         run: |
           ssh -i ~/.ssh/ec2 "$EC2_USUARIO@$EC2_HOST" "mkdir -p '$DIRECTORIO'"
-          scp -i ~/.ssh/ec2 deploy/compose/compose.yaml "$EC2_USUARIO@$EC2_HOST:$DIRECTORIO/compose.yaml"
+          scp -i ~/.ssh/ec2 docker-compose.yaml "$EC2_USUARIO@$EC2_HOST:$DIRECTORIO/docker-compose.yaml"
 
       - name: Descargar la imagen, reiniciar los contenedores y verificar /health
         env:
@@ -115,7 +115,7 @@ jobs:
           ssh -i ~/.ssh/ec2 "$EC2_USUARIO@$EC2_HOST" bash -s -- "$DIRECTORIO" "$IMAGEN" "$TAG" <<'EOF'
           set -euo pipefail
           cd "$1"
-          test -f .env || { echo "Falta el archivo .env en $1 (ver deploy/compose/.env.example)"; exit 1; }
+          test -f .env || { echo "Falta el archivo .env en $1 (ver .env.example del repositorio)"; exit 1; }
 
           # Imagen en ejecución antes del despliegue, para volver a ella si algo falla.
           anterior=""
