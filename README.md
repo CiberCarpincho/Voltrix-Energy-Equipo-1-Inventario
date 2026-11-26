@@ -136,9 +136,9 @@ Cada integrante trabaja en su rama, abre un PR hacia `develop` (lo revisa el CI)
 1. Linter: `golangci-lint` con la configuración de `.golangci.yml` (errcheck, govet, staticcheck, ineffassign, unused, formato `gofmt` y reglas de capas con `depguard`).
 2. Seguridad: Semgrep con las reglas OWASP Top 10, Go, secretos, Dockerfile, Compose y GitHub Actions.
 
-**Despliegue continuo** (`.github/workflows/cd.yml`), en cada push a `main` (al fusionar `develop`) o a mano desde *Actions → CD → Run workflow*: se publica la imagen en GHCR (`ghcr.io/cibercarpincho/voltrix-inventario-api:<commit>` y `:latest`), se copia `deploy/compose/compose.yaml` a la EC2 por SSH, se reinician los contenedores y se verifica `/health`, que reporta el commit desplegado en `version`. Si la versión nueva no responde, el pipeline vuelve a la imagen que estaba corriendo y el job falla. Los cambios de esquema deben admitir la versión anterior de la API.
+**Despliegue continuo** (`.github/workflows/cd.yml`), en cada push a `main` (al fusionar `develop`) o a mano desde *Actions → CD → Run workflow*: se publica la imagen en GHCR (`ghcr.io/infraestructuras-voltrix/voltrix-inventario-api:<commit>` y `:latest`), se copia `deploy/compose/compose.yaml` a la EC2 por SSH, se reinician los contenedores y se verifica `/health`, que reporta el commit desplegado en `version`. Si la versión nueva no responde, el pipeline vuelve a la imagen que estaba corriendo y el job falla. Los cambios de esquema deben admitir la versión anterior de la API.
 
-**Configuración única en GitHub** (la hace el propietario del repositorio):
+**Configuración única en GitHub** (la hace un administrador del repositorio):
 
 1. *Settings → Branches*: regla para `develop` con "Require a pull request before merging" y los checks obligatorios **Linter (golangci-lint)** y **Análisis de seguridad (Semgrep)**; regla para `main` con "Require a pull request before merging" (solo se fusiona `develop`).
 2. *Settings → Secrets and variables → Actions*: `EC2_HOST`, `EC2_USUARIO` (`ubuntu`) y `EC2_LLAVE_SSH`; opcionalmente la variable `EC2_DIRECTORIO` (por defecto `voltrix-inventario`, en el home del usuario).
@@ -153,7 +153,7 @@ curl -fsS http://localhost:8080/health
 ```
 
 **Volver a una versión anterior** (en la EC2):
-`API_IMAGEN=ghcr.io/cibercarpincho/voltrix-inventario-api API_TAG=<commit anterior> docker compose up -d api`.
+`API_IMAGEN=ghcr.io/infraestructuras-voltrix/voltrix-inventario-api API_TAG=<commit anterior> docker compose up -d api`.
 
 **Probar el despliegue desde fuera de la EC2** (PowerShell; reemplazar la IP):
 
