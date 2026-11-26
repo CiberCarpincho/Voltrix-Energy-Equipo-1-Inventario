@@ -22,7 +22,7 @@ import (
 // version se fija al compilar (-ldflags "-X main.version=<commit>"); la reporta /health.
 var version = "dev"
 
-const rutaContrato = "api/openapi.yaml"
+const rutaContrato = "docs/openapi.yaml"
 
 func main() {
 	if err := ejecutar(); err != nil {

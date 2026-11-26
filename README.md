@@ -1,6 +1,6 @@
 # Voltrix Energy · Equipo 1 · Inventario de Activos
 
-Servicio raíz de Voltrix Energy: mantiene el catálogo de plantas y de activos (paneles solares, turbinas y bancos de baterías) con su estado operativo. Lo consumen Telemetría (equipo 2), Reportes (4), Pronóstico (5) y Mantenimiento (6). El contrato HTTP está en [api/openapi.yaml](api/openapi.yaml).
+Servicio raíz de Voltrix Energy: mantiene el catálogo de plantas y de activos (paneles solares, turbinas y bancos de baterías) con su estado operativo. Lo consumen Telemetría (equipo 2), Reportes (4), Pronóstico (5) y Mantenimiento (6). El contrato HTTP está en [docs/openapi.yaml](docs/openapi.yaml).
 
 Este repositorio es el **arquetipo** del servicio: la arquitectura del DAS ya está montada y funcionando, pero no tiene ninguna historia de usuario implementada. Cada HU se agrega siguiendo la [sección 4](#4-cómo-implementar-una-historia-de-usuario).
 
@@ -44,7 +44,7 @@ app/main.go         → único lugar que conoce todas las capas y las conecta
 | `app/business/domain/` | Compartida | Errores de negocio. Aquí van los modelos (planta, activo, estados). |
 | `app/infraestructure/` | Acceso a datos | Pool de conexiones, migraciones (`migraciones/*.sql`), traducción de errores del driver y repositorios. |
 | `app/core/` | Utilidades | Configuración por variables de entorno con valores por defecto y validación. |
-| `api/` | Contrato | OpenAPI 1.0.0, servido en `GET /openapi.yaml`. |
+| `docs/` | Contrato | OpenAPI 1.0.0, servido en `GET /openapi.yaml`. |
 | `docker-compose.yaml` | Despliegue | API y PostgreSQL; es el que se copia a la EC2. |
 | `docker-compose.override.yaml` | Desarrollo | Construye la imagen desde el código y publica PostgreSQL en localhost. |
 | `.github/workflows/` | CI/CD | CI (linter y Semgrep) y CD (GHCR y EC2). |

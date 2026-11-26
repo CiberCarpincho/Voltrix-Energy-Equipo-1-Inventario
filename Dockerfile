@@ -11,7 +11,7 @@ RUN CGO_ENABLED=0 go build -p 1 -trimpath -ldflags "-s -w -X main.version=${VERS
 FROM alpine:3.22
 WORKDIR /app
 COPY --from=build /out/inventario /app/inventario
-COPY api/openapi.yaml api/openapi.yaml
+COPY docs/openapi.yaml docs/openapi.yaml
 USER 65532:65532
 EXPOSE 8080
 ENTRYPOINT ["/app/inventario"]

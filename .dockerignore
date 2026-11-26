@@ -3,6 +3,6 @@
 !go.sum
 !app/
 !app/**
-!api/
-!api/openapi.yaml
+!docs/
+!docs/openapi.yaml
 **/*_test.go
