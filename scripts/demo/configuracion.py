@@ -10,8 +10,9 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 URL_POR_DEFECTO = "http://localhost:8080"
-PROYECTO_POR_DEFECTO = "voltrix-inventario"  # el `name:` de deploy/compose/compose.yaml
-ARCHIVO_COMPOSE_POR_DEFECTO = "deploy/compose/compose.yaml"
+PROYECTO_POR_DEFECTO = "voltrix-inventario"  # el `name:` de docker-compose.yaml
+# El mismo par que `docker compose up` toma por defecto en desarrollo (base + override).
+ARCHIVOS_COMPOSE_POR_DEFECTO = ("docker-compose.yaml", "docker-compose.override.yaml")
 
 
 @dataclass(frozen=True)
@@ -43,7 +44,7 @@ def crear_parser(*, add_help: bool = True) -> argparse.ArgumentParser:
         "--compose-archivo",
         action="append",
         default=None,
-        help=f"Archivo de compose; se puede repetir (por defecto {ARCHIVO_COMPOSE_POR_DEFECTO})",
+        help=f"Archivo de compose; se puede repetir (por defecto {" y ".join(ARCHIVOS_COMPOSE_POR_DEFECTO)})",
     )
     return parser
 
@@ -58,7 +59,7 @@ def configuracion_de(
         rapido=args.rapido,
         color=not args.sin_color and "NO_COLOR" not in entorno,
         compose_proyecto=args.compose_proyecto,
-        compose_archivos=tuple(args.compose_archivo or [ARCHIVO_COMPOSE_POR_DEFECTO]),
+        compose_archivos=tuple(args.compose_archivo or ARCHIVOS_COMPOSE_POR_DEFECTO),
     )
 
 

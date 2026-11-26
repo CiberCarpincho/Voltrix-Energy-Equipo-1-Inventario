@@ -14,7 +14,8 @@ pip install -r scripts/demo/requirements.txt
 ## En local (docker compose)
 
 ```bash
-POSTGRES_PASSWORD=clave-local docker compose -f deploy/compose/compose.yaml up -d --build --wait
+cp .env.example .env   # y completar POSTGRES_PASSWORD
+docker compose up -d --build --wait
 
 python -m scripts.demo                          # guion por escenas con los equipos falsos
 python -m scripts.demo.criterios --hu 01        # HU-INV-01: plantas

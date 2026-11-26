@@ -149,7 +149,7 @@ def _ejecutar(config: Configuracion, salida: Salida, http: httpx.Client | None, 
             codigo = COMPROBACION_FALLIDA
     except httpx.TransportError:
         salida.linea(f"✗ No se pudo conectar a {config.url}. ¿Está levantada la API? "
-                     "(docker compose -f deploy/compose/compose.yaml up -d --build --wait)")  # fmt: skip
+                     "(docker compose up -d --build --wait)")  # fmt: skip
         codigo = SIN_EJECUTAR
     finally:
         if http is None:
