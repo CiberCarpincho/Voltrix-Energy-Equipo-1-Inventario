@@ -2,6 +2,7 @@ AWSTemplateFormatVersion: '2010-09-09'
 Description: >-
   Voltrix Equipo 1 - EC2 para la API de Inventario y PostgreSQL. Deja la instancia lista para el
   pipeline de CD (.github/workflows/cd.yml), que copia docker-compose.yaml y despliega la imagen.
+  Se crea con infra/ec2/desplegar.sh.
 Parameters:
   VpcId:
     Type: AWS::EC2::VPC::Id
@@ -10,22 +11,28 @@ Parameters:
     Description: Subred de la VPC con ruta a un Internet Gateway
   ApiClientCidr:
     Type: String
-    Description: CIDR IPv4 de clientes autorizados a consultar la API
-  InstanceType:
-    Type: String
-    AllowedValues: [t3.micro, t2.micro]
-    Description: Tipo x86 de 1 GiB validado para la cuenta y region
+    Default: 0.0.0.0/0
+    Description: CIDR IPv4 de clientes autorizados a consultar la API (los demás equipos)
   SshClientCidr:
     Type: String
     Default: 0.0.0.0/0
     Description: CIDR IPv4 autorizado para SSH (el pipeline de CD entra desde runners de GitHub con IP variable; el acceso exige la llave)
-  KeyName:
-    Type: AWS::EC2::KeyPair::KeyName
-    Description: Par de llaves para SSH (la llave privada va en el secreto EC2_LLAVE_SSH)
+  InstanceType:
+    Type: String
+    Default: t3.micro
+    AllowedValues: [t3.micro, t2.micro]
+    Description: Tipo x86 de 1 GiB elegible en la cuenta y la región
   UbuntuImage:
     Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
     Default: /aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id
 Resources:
+  # Llave SSH del pipeline. AWS guarda la llave privada en Parameter Store
+  # (/ec2/keypair/<KeyPairId>); desplegar.sh la lee y la carga en el secreto EC2_LLAVE_SSH.
+  LlaveDespliegue:
+    Type: AWS::EC2::KeyPair
+    Properties:
+      KeyName: !Sub '${AWS::StackName}-cd'
+      KeyType: ed25519
   ApiSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
@@ -40,19 +47,38 @@ Resources:
           FromPort: 22
           ToPort: 22
           CidrIp: !Ref SshClientCidr
+  # IP pública fija: no cambia al detener o reiniciar la instancia, así el secreto EC2_HOST y
+  # el directorio compartido de servicios no quedan desactualizados. Se asocia a la interfaz de
+  # red antes de que la instancia arranque, para que la instalación tenga salida a Internet.
+  InterfazRed:
+    Type: AWS::EC2::NetworkInterface
+    Properties:
+      SubnetId: !Ref PublicSubnet
+      GroupSet: [!Ref ApiSecurityGroup]
+  IpPublica:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: Voltrix-Equipo-1-Inventario
+  AsociacionIpPublica:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      AllocationId: !GetAtt IpPublica.AllocationId
+      NetworkInterfaceId: !Ref InterfazRed
   InventoryHost:
     Type: AWS::EC2::Instance
+    DependsOn: AsociacionIpPublica
     Properties:
       InstanceType: !Ref InstanceType
       ImageId: !Ref UbuntuImage
-      KeyName: !Ref KeyName
+      KeyName: !Ref LlaveDespliegue
       MetadataOptions:
         HttpTokens: required
       NetworkInterfaces:
         - DeviceIndex: '0'
-          AssociatePublicIpAddress: true
-          SubnetId: !Ref PublicSubnet
-          GroupSet: [!Ref ApiSecurityGroup]
+          NetworkInterfaceId: !Ref InterfazRed
       Tags:
         - Key: Name
           Value: Voltrix-Equipo-1-Inventario
@@ -83,12 +109,15 @@ Resources:
           fi
           free -m
           swapon --show
-          echo "Instancia lista: ejecuta el workflow CD desde GitHub Actions"
+          echo "Instancia lista para el pipeline de CD"
 Outputs:
+  PublicIp:
+    Description: IP elástica de la instancia (secreto EC2_HOST)
+    Value: !Ref IpPublica
   ApiUrl:
-    Value: !Sub 'http://${InventoryHost.PublicIp}:8080'
+    Value: !Sub 'http://${IpPublica}:8080'
+  LlaveId:
+    Description: KeyPairId; la llave privada está en Parameter Store, /ec2/keypair/<LlaveId>
+    Value: !GetAtt LlaveDespliegue.KeyPairId
   InstanceId:
     Value: !Ref InventoryHost
-  PublicIp:
-    Description: Valor del secreto EC2_HOST
-    Value: !GetAtt InventoryHost.PublicIp

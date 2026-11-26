@@ -47,7 +47,7 @@ app/main.go         → único lugar que conoce todas las capas y las conecta
 | `docs/` | Contrato | OpenAPI 1.0.0, servido en `GET /openapi.yaml`. |
 | `docker-compose.yaml` | Despliegue | API y PostgreSQL; es el que se copia a la EC2. |
 | `docker-compose.override.yaml` | Desarrollo | Construye la imagen desde el código y publica PostgreSQL en localhost. |
-| `infra/ec2/` | IaC | Plantilla de CloudFormation que crea la EC2 lista para el CD (ver [sección 8](#8-cicd-y-despliegue)). |
+| `infra/ec2/` | IaC | Plantilla de CloudFormation y `desplegar.sh`, que crea la EC2 y la conecta al CD en un solo comando (ver [sección 8](#8-cicd-y-despliegue)). |
 | `.github/workflows/` | CI/CD | CI (linter y Semgrep) y CD (GHCR y EC2). |
 
 ## 3. Qué ya está listo
@@ -154,20 +154,26 @@ Cada integrante trabaja en su rama, abre un PR hacia `develop` (lo revisa el CI)
 **Configuración única en GitHub** (la hace un administrador del repositorio):
 
 1. *Settings → Branches*: regla para `develop` con "Require a pull request before merging" y los checks obligatorios **Linter (golangci-lint)** y **Análisis de seguridad (Semgrep)**; regla para `main` con "Require a pull request before merging" (solo se fusiona `develop`).
-2. *Settings → Secrets and variables → Actions*: `EC2_HOST`, `EC2_USUARIO` (`ubuntu`) y `EC2_LLAVE_SSH`; opcionalmente la variable `EC2_DIRECTORIO` (por defecto `voltrix-inventario`, en el home del usuario).
+2. Secretos `EC2_HOST`, `EC2_USUARIO` y `EC2_LLAVE_SSH`: los carga `infra/ec2/desplegar.sh` (ver abajo). Solo se cargan a mano en *Settings → Secrets and variables → Actions* si la EC2 se creó de otra forma. Variable opcional: `EC2_DIRECTORIO` (por defecto `voltrix-inventario`, en el home del usuario).
 
-**EC2 (una sola vez, con IaC)**: la plantilla [infra/ec2/inventario.yaml](infra/ec2/inventario.yaml) crea la instancia y su grupo de seguridad y la deja lista para el CD: swap de 1 GiB, Docker con Compose, el usuario `ubuntu` en el grupo `docker` y `~/voltrix-inventario/.env` con una contraseña generada en la instancia. Solo abre 22 (SSH del pipeline, protegido por la llave) y 8080 (API); PostgreSQL no se publica.
+**EC2 (IaC, un solo comando)**: [infra/ec2/desplegar.sh](infra/ec2/desplegar.sh) crea la EC2 con la plantilla [infra/ec2/inventario.yaml](infra/ec2/inventario.yaml) y la conecta al CD sin abrir la consola de AWS ni la de GitHub:
 
-1. En EC2 → *Key pairs*, crear o importar el par de llaves del pipeline.
-2. En CloudFormation, crear una pila con `infra/ec2/inventario.yaml` (nombre `voltrix-inventario`). Parámetros: VPC y subred pública, `ApiClientCidr` (quién puede llamar a la API; `0.0.0.0/0` para los demás equipos), tipo `t3.micro` o `t2.micro` (el elegible en la cuenta), el par de llaves y `SshClientCidr` en `0.0.0.0/0` (los runners de GitHub no tienen IP fija).
-   Desde la terminal, lo mismo con la AWS CLI:
-   ```bash
-   aws cloudformation deploy --stack-name voltrix-inventario --template-file infra/ec2/inventario.yaml \
-     --parameter-overrides VpcId=<vpc> PublicSubnet=<subred> ApiClientCidr=0.0.0.0/0 \
-       InstanceType=t3.micro KeyName=<llave>
-   aws cloudformation describe-stacks --stack-name voltrix-inventario --query 'Stacks[0].Outputs'
-   ```
-3. Con la salida `PublicIp`, actualizar el secreto `EC2_HOST` y lanzar *Actions → CD → Run workflow*. El arranque de la instancia (`/var/log/voltrix-inventario.log`) tarda unos minutos.
+```bash
+infra/ec2/desplegar.sh                          # región de la AWS CLI
+AWS_REGION=us-east-1 infra/ec2/desplegar.sh     # otra región
+```
+
+Requisitos: AWS CLI v2 con credenciales (`aws configure`), GitHub CLI autenticada (`gh auth login`) con permiso de administrador en el repositorio, y `ssh`. En Windows se ejecuta desde Git Bash o WSL.
+
+| Paso | Qué hace |
+|---|---|
+| Parámetros | Lee [infra/ec2/parametros.env](infra/ec2/parametros.env) (`t3.micro`, API y SSH abiertos). Si `VpcId` y `PublicSubnet` están vacíos, usa la VPC por defecto y una subred en una zona donde exista el tipo de instancia. |
+| Pila | `aws cloudformation deploy`: instancia, grupo de seguridad (solo 22 y 8080; PostgreSQL no se publica), llave SSH del pipeline (la privada queda en Parameter Store) e IP elástica, que no cambia al reiniciar. |
+| Arranque | Espera a que la instancia termine de configurar swap de 1 GiB, Docker con Compose, el usuario `ubuntu` en el grupo `docker` y `~/voltrix-inventario/.env` con una contraseña generada en la instancia. |
+| Secretos | Carga `EC2_HOST`, `EC2_USUARIO` y `EC2_LLAVE_SSH` en el repositorio con `gh secret set`. |
+| Despliegue | Lanza el workflow CD sobre `main` (si `cd.yml` ya está en `main`). |
+
+Se puede ejecutar de nuevo sin riesgo: solo cambia la pila si cambió la plantilla o los parámetros. Para eliminar la instancia, la IP y la llave: `aws cloudformation delete-stack --stack-name voltrix-inventario`. Esto borra también los datos de la base, que viven en el disco de la instancia.
 
 ```bash
 # En la EC2, para comprobar el estado
