@@ -124,6 +124,12 @@ func leerPaginacion(r *http.Request) domain.Paginacion {
 func manejarListarPlantas(catalogo *services.Catalogo) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
+		for _, nombre := range []string{"tipo", "clienteId"} {
+			if q.Has(nombre) && q.Get(nombre) == "" {
+				ResponderError(w, r, domain.Invalido(nombre+" no puede estar vacío"))
+				return
+			}
+		}
 		pagina, err := catalogo.ListarPlantas(r.Context(),
 			domain.FiltroPlantas{Tipo: q.Get("tipo"), ClienteID: q.Get("clienteId")}, leerPaginacion(r))
 		if err != nil {

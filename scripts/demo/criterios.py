@@ -298,6 +298,8 @@ def hu_01(c: Contexto) -> None:
                    "clienteId fuera de patrón), cuando la API lo valida, entonces responde 400 "
                    "SOLICITUD_INVALIDA con mensaje y requestId.")  # fmt: skip
         _invalidos(c, e, rep, [
+            ("/plantas?tipo=", "tipo vacío"),
+            ("/plantas?clienteId=", "clienteId vacío"),
             ("/plantas?tipo=nuclear", "tipo fuera del catálogo (solar, eolica, hibrida)"),
             ("/plantas?limit=0", "limit menor que 1"),
             ("/plantas?limit=201", "limit mayor que 200"),
