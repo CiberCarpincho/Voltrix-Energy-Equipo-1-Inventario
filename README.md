@@ -22,7 +22,21 @@ Estructura de trabajo basada en las vistas lógica y de despliegue del DAS. Los 
 
 ## Avance 1 · 26 de noviembre
 
-El esqueleto de carpetas prepara la implementación. Para sustentar el avance se requiere mostrar la API con datos de ejemplo conforme al contrato en EC2 y el clúster Floci EKS creado.
+HU-03 carga 80 plantas y 1.270 activos deterministas en un PostgreSQL vacío al iniciar. La carga solo se aplica si el catálogo está vacío. Compose conserva la base en el volumen `pgdata`.
+
+```powershell
+$env:POSTGRES_PASSWORD = "clave-local-de-prueba"
+docker compose -f deploy/compose/compose.yaml up -d --build --wait
+curl.exe http://localhost:8080/activos/PL-001-PS-07
+curl.exe "http://localhost:8080/plantas?limit=1"
+curl.exe "http://localhost:8080/activos?limit=1"
+curl.exe http://localhost:8080/openapi.yaml
+docker compose -f deploy/compose/compose.yaml restart
+```
+
+Los GET de plantas y activos consultan PostgreSQL. Los POST de este avance aceptan la petición de ejemplo del OpenAPI y devuelven una respuesta de demostración marcada con `X-Inventario-Demo: true`. Se pueden repetir sin modificar la base. Las operaciones funcionales corresponden a HU-06 a HU-10.
+
+Ejecuta `go test ./...` para verificar el contrato y las respuestas de demostración. Para incluir la prueba de integración, configura `INVENTARIO_TEST_DSN` con una conexión PostgreSQL cuyo usuario pueda crear esquemas. La prueba usa su propio esquema para comprobar la semilla, las consultas y la persistencia tras reconectar e iniciar de nuevo.
 
 La [guía de despliegue de HU-04](infra/ec2/HU-04.md) reúne los pasos para ejecutar Inventario con PostgreSQL, crear la instancia con CloudFormation y comprobar el acceso desde fuera de EC2.
 
