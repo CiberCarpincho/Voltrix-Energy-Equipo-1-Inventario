@@ -60,6 +60,9 @@ jobs:
         with:
           context: .
           push: true
+          # /health reporta este commit como versión.
+          build-args: |
+            VERSION=${{ github.sha }}
           tags: |
             ${{ steps.nombre.outputs.imagen }}:${{ github.sha }}
             ${{ steps.nombre.outputs.imagen }}:latest

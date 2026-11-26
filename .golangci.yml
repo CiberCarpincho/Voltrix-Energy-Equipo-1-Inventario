@@ -2,8 +2,12 @@
 version: "2"
 
 linters:
-  # errcheck, govet, ineffassign, staticcheck y unused.
+  # standard: errcheck, govet, ineffassign, staticcheck y unused.
   default: standard
+  enable:
+    # Reglas de dependencia entre capas del DAS (sección 2): cada capa solo habla con la de
+    # abajo y solo el repositorio conoce SQL. cmd/inventario es el único que ve todas.
+    - depguard
   settings:
     errcheck:
       # Errores que no tienen manejo útil: la respuesta HTTP ya empezó a enviarse, o el
@@ -12,6 +16,57 @@ linters:
         - (net/http.ResponseWriter).Write
         - (*encoding/json.Encoder).Encode
         - (*database/sql.Tx).Rollback
+    depguard:
+      rules:
+        presentacion:
+          files: ["**/internal/httpapi/**"]
+          deny:
+            - pkg: voltrix/inventario/internal/repositorio
+              desc: "la presentación llama a la capa de negocio (internal/servicio), no al repositorio"
+            - pkg: voltrix/inventario/internal/lotes
+              desc: "el pool de workers lo usa la capa de negocio (internal/servicio)"
+            - pkg: database/sql
+              desc: "solo la capa de acceso a datos conoce SQL"
+            - pkg: github.com/lib/pq
+              desc: "solo la capa de acceso a datos conoce el driver de PostgreSQL"
+        negocio:
+          files: ["**/internal/servicio/**", "**/internal/lotes/**"]
+          deny:
+            - pkg: voltrix/inventario/internal/httpapi
+              desc: "la capa de negocio no depende de la presentación"
+            - pkg: voltrix/inventario/internal/repositorio
+              desc: "la capa de negocio usa los puertos de internal/servicio/puertos.go, no el repositorio concreto"
+            - pkg: net/http
+              desc: "la capa de negocio no conoce HTTP"
+            - pkg: database/sql
+              desc: "solo la capa de acceso a datos conoce SQL"
+            - pkg: github.com/lib/pq
+              desc: "solo la capa de acceso a datos conoce el driver de PostgreSQL"
+        acceso-datos:
+          files: ["**/internal/repositorio/**"]
+          deny:
+            - pkg: voltrix/inventario/internal/httpapi
+              desc: "el repositorio no depende de la presentación"
+            - pkg: voltrix/inventario/internal/servicio
+              desc: "el repositorio no depende de la capa de negocio"
+            - pkg: voltrix/inventario/internal/lotes
+              desc: "el repositorio no depende de la capa de negocio"
+            - pkg: net/http
+              desc: "el repositorio no conoce HTTP"
+        dominio:
+          files: ["**/internal/dominio/**"]
+          deny:
+            - pkg: voltrix/inventario/internal
+              desc: "el dominio no depende de ninguna capa"
+            - pkg: net/http
+              desc: "el dominio no conoce HTTP"
+            - pkg: database/sql
+              desc: "el dominio no conoce SQL"
+        configuracion:
+          files: ["**/internal/config/**"]
+          deny:
+            - pkg: voltrix/inventario/internal
+              desc: "la configuración no depende de ninguna capa"
   exclusions:
     presets:
       - std-error-handling # Close, Flush, fmt.Print... sin revisar el error

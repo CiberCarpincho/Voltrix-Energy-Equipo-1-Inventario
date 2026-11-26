@@ -3,9 +3,8 @@
 !go.sum
 !cmd/
 !cmd/**
-!db/
-!db/**
 !internal/
 !internal/**
 !api/
 !api/openapi.yaml
+**/*_test.go

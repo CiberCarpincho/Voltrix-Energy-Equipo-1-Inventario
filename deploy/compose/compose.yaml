@@ -40,6 +40,11 @@ services:
       PGPASSWORD: ${POSTGRES_PASSWORD:?Define POSTGRES_PASSWORD}
       PGSSLMODE: disable
       PGCONNECT_TIMEOUT: "1"
+      # Parámetros del servicio (internal/config); valores por defecto pensados para 1 GiB de RAM.
+      DB_MAX_CONEXIONES: ${DB_MAX_CONEXIONES:-4}
+      WORKERS: ${WORKERS:-4}
+      ADMISION_MAX_CONCURRENTES: ${ADMISION_MAX_CONCURRENTES:-32}
+      LOG_NIVEL: ${LOG_NIVEL:-info}
     mem_limit: 128m
     restart: unless-stopped
     depends_on:
